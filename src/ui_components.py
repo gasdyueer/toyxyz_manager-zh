@@ -462,15 +462,66 @@ class TaskMonitorWidget(QWidget):
                 if key:
                     self.row_map[key] = r
 
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget, 
+    QSizePolicy, QDialog, QLineEdit, QFileDialog, QDialogButtonBox, 
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, 
+    QFormLayout, QSpinBox, QListWidget, QInputDialog, QGridLayout, QGroupBox, 
+    QApplication, QMessageBox, QComboBox
+)
+
+# ... (Previous code remains, inserting FolderDialog before SettingsDialog if needed, or just putting it inside SettingsDialog logic)
+
+class FolderDialog(QDialog):
+    def __init__(self, parent=None, path="", mode="model"):
+        super().__init__(parent)
+        self.setWindowTitle("Folder Settings")
+        self.resize(400, 150)
+        
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        
+        self.edit_path = QLineEdit(path)
+        path_box = QHBoxLayout()
+        path_box.addWidget(self.edit_path)
+        btn_browse = QPushButton("📂")
+        btn_browse.clicked.connect(self.browse)
+        path_box.addWidget(btn_browse)
+        form.addRow("Path:", path_box)
+        
+        self.combo_mode = QComboBox()
+        self.combo_mode.addItems(["model", "workflow", "prompt"])
+        self.combo_mode.setCurrentText(mode)
+        form.addRow("Mode:", self.combo_mode)
+        
+        layout.addLayout(form)
+        
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def browse(self):
+        d = QFileDialog.getExistingDirectory(self, "Select Folder", self.edit_path.text())
+        if d: self.edit_path.setText(d)
+
+    def get_data(self):
+        path = self.edit_path.text().strip()
+        alias = os.path.basename(path) if path else ""
+        return alias, path, self.combo_mode.currentText()
+
 class SettingsDialog(QDialog):
     def __init__(self, parent=None, settings=None, directories=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.resize(600, 500)
+        self.resize(700, 600)
         self.settings = settings or {}
         self.directories = directories or {}
         layout = QVBoxLayout(self)
-        form_layout = QFormLayout()
+        
+        # General Settings Group
+        grp_gen = QGroupBox("General")
+        form_layout = QFormLayout(grp_gen)
         self.entry_civitai_key = QLineEdit(self.settings.get("civitai_api_key", ""))
         self.entry_civitai_key.setPlaceholderText("Paste your Civitai API Key here")
         form_layout.addRow("Civitai API Key:", self.entry_civitai_key)
@@ -492,52 +543,99 @@ class SettingsDialog(QDialog):
         cache_layout.addWidget(self.entry_cache)
         cache_layout.addWidget(btn_browse_cache)
         form_layout.addRow("Cache Folder:", cache_layout)
-        layout.addLayout(form_layout)
-        layout.addWidget(QLabel("Registered Folders:"))
-        self.list_widget = QListWidget()
-        self.refresh_list()
-        layout.addWidget(self.list_widget)
+        layout.addWidget(grp_gen)
+        
+        # Directory Settings Group
+        grp_dir = QGroupBox("Registered Folders")
+        dir_layout = QVBoxLayout(grp_dir)
+        
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Name", "Mode", "Path"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        dir_layout.addWidget(self.table)
+        
         btn_layout = QHBoxLayout()
         self.btn_add = QPushButton("➕ Add Folder")
+        self.btn_edit = QPushButton("✏️ Edit Selected")
         self.btn_del = QPushButton("➖ Remove Selected")
         self.btn_add.clicked.connect(self.add_folder)
+        self.btn_edit.clicked.connect(self.edit_folder)
         self.btn_del.clicked.connect(self.remove_folder)
         btn_layout.addWidget(self.btn_add)
+        btn_layout.addWidget(self.btn_edit)
         btn_layout.addWidget(self.btn_del)
-        layout.addLayout(btn_layout)
+        dir_layout.addLayout(btn_layout)
+        
+        layout.addWidget(grp_dir)
+        
+        # Bottom Buttons
         action_layout = QHBoxLayout()
         self.btn_save = QPushButton("💾 Save & Close")
         self.btn_save.clicked.connect(self.accept)
         action_layout.addStretch()
         action_layout.addWidget(self.btn_save)
         layout.addLayout(action_layout)
+        
+        self.refresh_table()
 
-    def refresh_list(self):
-        self.list_widget.clear()
-        for name, path in self.directories.items():
-            self.list_widget.addItem(f"[{name}] {path}")
+    def refresh_table(self):
+        self.table.setRowCount(0)
+        for alias, data in self.directories.items():
+            path = data.get("path", "")
+            mode = data.get("mode", "model")
+            
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(alias))
+            self.table.setItem(row, 1, QTableWidgetItem(mode))
+            self.table.setItem(row, 2, QTableWidgetItem(path))
 
     def add_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Select Model Folder")
-        if path:
-            name = os.path.basename(path)
-            if name in self.directories:
-                i = 1
-                while f"{name}_{i}" in self.directories: i += 1
-                name = f"{name}_{i}"
-            text, ok = QInputDialog.getText(self, "Folder Name", "Alias for this folder:", text=name)
-            if ok and text:
-                self.directories[text] = path
-                self.refresh_list()
+        dlg = FolderDialog(self)
+        if dlg.exec():
+            alias, path, mode = dlg.get_data()
+            if not alias or not path: return
+            
+            if alias in self.directories:
+                QMessageBox.warning(self, "Error", "A folder with this name already exists.")
+                return
+            
+            self.directories[alias] = {"path": path, "mode": mode}
+            self.refresh_table()
+
+    def edit_folder(self):
+        row = self.table.currentRow()
+        if row < 0: return
+        alias = self.table.item(row, 0).text()
+        data = self.directories.get(alias, {})
+        
+        dlg = FolderDialog(self, path=data.get("path", ""), mode=data.get("mode", "model"))
+        if dlg.exec():
+            new_alias, new_path, new_mode = dlg.get_data()
+            if not new_alias or not new_path: return
+            
+            # If alias changed (because path changed), delete old key
+            if new_alias != alias:
+                if new_alias in self.directories:
+                    QMessageBox.warning(self, "Error", "A folder with this name already exists.")
+                    return
+                del self.directories[alias]
+                
+            self.directories[new_alias] = {"path": new_path, "mode": new_mode}
+            self.refresh_table()
 
     def remove_folder(self):
-        item = self.list_widget.currentItem()
-        if item:
-            txt = item.text()
-            key = txt.split(']')[0][1:]
-            if key in self.directories:
-                del self.directories[key]
-                self.refresh_list()
+        row = self.table.currentRow()
+        if row < 0: return
+        alias = self.table.item(row, 0).text()
+        if QMessageBox.question(self, "Remove", f"Remove '{alias}'?") == QMessageBox.Yes:
+            del self.directories[alias]
+            self.refresh_table()
 
     def browse_cache_folder(self):
         path = QFileDialog.getExistingDirectory(self, "Select Cache Folder")

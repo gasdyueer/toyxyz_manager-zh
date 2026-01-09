@@ -2,8 +2,6 @@ import sys
 import os
 import json
 import re
-import cv2
-import shutil
 from typing import Dict, Any, Optional
 
 from PySide6.QtCore import QMutex
@@ -54,7 +52,18 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE = os.path.join(BASE_DIR, "manager_config.json")
 CACHE_DIR_NAME = os.path.join(BASE_DIR, "cache")
 
-SUPPORTED_EXTENSIONS = {".ckpt", ".pt", ".bin", ".safetensors", ".gguf"}
+# Extension Definitions
+EXT_MODEL = {".ckpt", ".pt", ".bin", ".safetensors", ".gguf"}
+EXT_WORKFLOW = {".json"}
+EXT_PROMPT = {".txt"} # Placeholder
+
+# Mode Mapping
+SUPPORTED_EXTENSIONS = {
+    "model": EXT_MODEL,
+    "workflow": EXT_WORKFLOW,
+    "prompt": EXT_PROMPT
+}
+
 PREVIEW_EXTENSIONS = [".mp4", ".webm", ".gif", ".preview.png", ".png", ".jpg", ".jpeg", ".webp"]
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".preview.png"}
 VIDEO_EXTENSIONS = {".mp4", ".webm", ".gif", ".mov"} 
@@ -95,10 +104,10 @@ def extract_video_frame(video_path, output_path):
         if cap: cap.release()
     return False
 
-def calculate_structure_path(model_path: str, cache_root: str, directories: Dict[str, str]) -> str:
+def calculate_structure_path(model_path: str, cache_root: str, directories: Dict[str, Any]) -> str:
     """
-    Calculates the structured cache path for a given model.
-    Replaces _get_full_structured_cache_path and _calculate_cache_path from the original code.
+    Calculates the structured cache path.
+    directories value can be string (legacy) or dict (new).
     """
     model_abs = os.path.abspath(model_path)
     model_dir = os.path.dirname(model_abs)
@@ -107,7 +116,13 @@ def calculate_structure_path(model_path: str, cache_root: str, directories: Dict
     root_alias = "Uncategorized"
     rel_path = ""
     
-    for alias, root_path in directories.items():
+    for alias, data in directories.items():
+        # Handle both string (legacy) and dict (new) formats
+        if isinstance(data, dict):
+            root_path = data.get("path", "")
+        else:
+            root_path = str(data)
+            
         root_abs = os.path.abspath(root_path)
         if model_abs.startswith(root_abs):
             root_alias = alias
@@ -124,14 +139,38 @@ def calculate_structure_path(model_path: str, cache_root: str, directories: Dict
 # Config Management
 # ==========================================
 def load_config(config_path=CONFIG_FILE) -> Dict[str, Any]:
-    """Loads the configuration from JSON file."""
+    """Loads the configuration from JSON file and handles migration."""
+    data = {}
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                data = json.load(f)
         except Exception as e:
             print(f"Failed to load config: {e}")
-    return {}
+            return {}
+
+    # --- Migration Logic ---
+    settings = data.get("__settings__", {})
+    directories = settings.get("directories", {})
+    
+    migrated = False
+    new_directories = {}
+    
+    for alias, val in directories.items():
+        if isinstance(val, str):
+            # Legacy: "Alias": "Path" -> "Alias": {"path": "Path", "mode": "model"}
+            new_directories[alias] = {"path": val, "mode": "model"}
+            migrated = True
+        else:
+            new_directories[alias] = val
+            
+    if migrated:
+        settings["directories"] = new_directories
+        data["__settings__"] = settings
+        save_config(data, config_path)
+        print("Config migrated to new structure.")
+        
+    return data
 
 def save_config(data: Dict[str, Any], config_path=CONFIG_FILE):
     """Saves the configuration dict to JSON file."""

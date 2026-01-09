@@ -118,9 +118,10 @@ class ThumbnailWorker(QThread):
 # ==========================================
 class FileScannerWorker(QThread):
     finished = Signal(dict)
-    def __init__(self, base_path):
+    def __init__(self, base_path, extensions):
         super().__init__()
         self.base_path = base_path
+        self.extensions = extensions
         self._is_running = True
     def stop(self):
         self._is_running = False
@@ -134,7 +135,7 @@ class FileScannerWorker(QThread):
             valid_files = []
             for f in files:
                 if not self._is_running: return
-                if os.path.splitext(f)[1].lower() in SUPPORTED_EXTENSIONS:
+                if os.path.splitext(f)[1].lower() in self.extensions:
                     full_path = os.path.join(root, f)
                     try:
                         st = os.stat(full_path)
