@@ -1,4 +1,4 @@
-import sys
+
 import os
 import time
 import json
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QAbstractItemView, QApplication, QTreeWidgetItemIterator
 )
 from PySide6.QtCore import Qt, QTimer, QSize
-from PySide6.QtGui import QAction, QFont, QIcon, QDesktopServices, QPixmap
+from PySide6.QtGui import QFont
 
 try:
     from PIL import Image
