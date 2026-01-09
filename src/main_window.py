@@ -68,6 +68,7 @@ class ModelManagerWindow(QMainWindow):
             ))
         self.image_loader_thread = ImageLoader()
         self.image_loader_thread.start()
+
         self.load_config_data()
         self.apply_font_scale()
         self._init_ui()
@@ -84,6 +85,7 @@ class ModelManagerWindow(QMainWindow):
 
     def _calculate_cache_path(self, model_path):
         return calculate_structure_path(model_path, self.get_cache_dir(), self.directories)
+
 
     def _init_ui(self):
         central = QWidget()
@@ -328,11 +330,21 @@ class ModelManagerWindow(QMainWindow):
     def load_config_data(self):
         data = load_config()
         self.app_settings = data.get("__settings__", {})
-        self.directories = {k: v for k, v in data.items() if k != "__settings__"}
+        # Load directories ONLY from __settings__ to avoid duplication
+        # Fallback to root level only for backward compatibility migration
+        self.directories = self.app_settings.get("directories", {})
+        if not self.directories:
+            # Migration: If __settings__['directories'] is empty, check root keys
+            root_dirs = {k: v for k, v in data.items() if k != "__settings__"}
+            if root_dirs:
+                self.directories = root_dirs
+                # Auto-migrate: save immediately to fix structure
+                self.save_config_data()
 
     def save_config_data(self):
-        data = self.directories.copy()
-        data["__settings__"] = self.app_settings
+        # We only save __settings__ at the root, and directories inside it
+        self.app_settings["directories"] = self.directories
+        data = {"__settings__": self.app_settings}
         save_config(data)
 
     def apply_font_scale(self):
