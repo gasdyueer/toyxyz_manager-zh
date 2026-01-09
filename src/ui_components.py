@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QDialog, QLineEdit, QFileDialog, QDialogButtonBox, 
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, 
     QFormLayout, QSpinBox, QListWidget, QInputDialog, QGridLayout, QGroupBox, 
-    QApplication, QMessageBox
+    QApplication, QMessageBox, QComboBox, QTextBrowser, QTextEdit
 )
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal, QMimeData, QSize
 from PySide6.QtGui import QPixmap, QDrag, QBrush, QColor, QImageReader
@@ -462,16 +462,6 @@ class TaskMonitorWidget(QWidget):
                 if key:
                     self.row_map[key] = r
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget, 
-    QSizePolicy, QDialog, QLineEdit, QFileDialog, QDialogButtonBox, 
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, 
-    QFormLayout, QSpinBox, QListWidget, QInputDialog, QGridLayout, QGroupBox, 
-    QApplication, QMessageBox, QComboBox
-)
-
-# ... (Previous code remains, inserting FolderDialog before SettingsDialog if needed, or just putting it inside SettingsDialog logic)
-
 class FolderDialog(QDialog):
     def __init__(self, parent=None, path="", mode="model"):
         super().__init__(parent)
@@ -633,23 +623,152 @@ class SettingsDialog(QDialog):
         row = self.table.currentRow()
         if row < 0: return
         alias = self.table.item(row, 0).text()
-        if QMessageBox.question(self, "Remove", f"Remove '{alias}'?") == QMessageBox.Yes:
-            del self.directories[alias]
-            self.refresh_table()
+        
+        if QMessageBox.question(self, "Remove", f"Remove '{alias}' from list?") == QMessageBox.Yes:
+            if alias in self.directories:
+                del self.directories[alias]
+                self.refresh_table()
 
     def browse_cache_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Select Cache Folder")
-        if path:
-            self.entry_cache.setText(path)
+        d = QFileDialog.getExistingDirectory(self, "Select Cache Folder", self.entry_cache.text())
+        if d: self.entry_cache.setText(d)
 
     def get_data(self):
+        # Update settings dict
+        self.settings["civitai_api_key"] = self.entry_civitai_key.text().strip()
+        self.settings["hf_api_key"] = self.entry_hf_key.text().strip()
+        self.settings["font_scale"] = self.spin_font.value()
+        self.settings["cache_path"] = self.entry_cache.text().strip()
+        
+        # Return updated structure
         return {
-            "civitai_api_key": self.entry_civitai_key.text().strip(),
-            "hf_api_key": self.entry_hf_key.text().strip(),
-            "font_scale": self.spin_font.value(),
-            "cache_path": self.entry_cache.text().strip(),
+            "__settings__": self.settings,
             "directories": self.directories
         }
+
+# ==========================================
+# New Shared Components
+# ==========================================
+class MarkdownNoteWidget(QWidget):
+    save_requested = Signal(str)
+
+    def __init__(self, parent=None, font_scale=100):
+        super().__init__(parent)
+        self.font_scale = font_scale
+        
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(5,5,5,5)
+        
+        # Stacked Widget to switch between View and Edit modes
+        self.stack = QStackedWidget()
+        
+        # --- View Mode ---
+        self.view_widget = QWidget()
+        view_layout = QVBoxLayout(self.view_widget)
+        view_layout.setContentsMargins(0,0,0,0)
+        
+        top_bar = QHBoxLayout()
+        self.btn_edit = QPushButton("✏️ Edit")
+        self.btn_edit.clicked.connect(self.switch_to_edit)
+        top_bar.addStretch()
+        top_bar.addWidget(self.btn_edit)
+        view_layout.addLayout(top_bar)
+        
+        self.browser = QTextBrowser()
+        self.browser.setOpenExternalLinks(True)
+        view_layout.addWidget(self.browser)
+        
+        # --- Edit Mode ---
+        self.edit_widget = QWidget()
+        edit_layout = QVBoxLayout(self.edit_widget)
+        edit_layout.setContentsMargins(0,0,0,0)
+        
+        self.media_handler = None
+        
+        toolbar = QHBoxLayout()
+        btn_img = QPushButton("🖼️ Image")
+        btn_img.setToolTip("Insert Image")
+        btn_img.clicked.connect(lambda: self.insert_media("image"))
+        
+        btn_link = QPushButton("🔗 Link")
+        btn_link.setToolTip("Insert Link")
+        btn_link.clicked.connect(lambda: self.insert_media("link"))
+        
+        for b in [btn_img, btn_link]:
+            b.setFixedWidth(80)
+            toolbar.addWidget(b)
+        
+        toolbar.addStretch()
+        
+        self.btn_save = QPushButton("💾 Save")
+        self.btn_save.clicked.connect(self.request_save)
+        self.btn_cancel = QPushButton("❌ Cancel")
+        self.btn_cancel.clicked.connect(self.switch_to_view)
+        
+        toolbar.addWidget(self.btn_save)
+        toolbar.addWidget(self.btn_cancel)
+        edit_layout.addLayout(toolbar)
+        
+        self.editor = QTextEdit()
+        edit_layout.addWidget(self.editor)
+        
+        self.stack.addWidget(self.view_widget)
+        self.stack.addWidget(self.edit_widget)
+        self.layout.addWidget(self.stack)
+
+    def set_text(self, text):
+        self.editor.setText(text)
+        self.update_preview()
+
+    def update_preview(self):
+        text = self.editor.toPlainText()
+        scale = self.font_scale
+        font_size_pt = max(8, int(10 * (scale / 100.0))) 
+        css = f"<style>img {{ max-width: 100%; height: auto; }} body {{ color: black; background-color: white; font-size: {font_size_pt}pt; font-family: sans-serif; }}</style>"
+        try:
+            import markdown
+            html = markdown.markdown(text)
+            self.browser.setHtml(css + html)
+        except ImportError:
+            self.browser.setHtml(css + f"<pre>{text}</pre>")
+
+    def switch_to_edit(self):
+        self.stack.setCurrentIndex(1)
+
+    def switch_to_view(self):
+        self.update_preview()
+        self.stack.setCurrentIndex(0)
+
+    def request_save(self):
+        text = self.editor.toPlainText()
+        self.save_requested.emit(text)
+        self.switch_to_view()
+
+    def set_media_handler(self, handler):
+        self.media_handler = handler
+
+    def insert_media(self, mtype):
+        if self.media_handler:
+            result = self.media_handler(mtype)
+            if result:
+                cursor = self.editor.textCursor()
+                cursor.insertText(result)
+                self.editor.setFocus()
+                return
+            
+        cursor = self.editor.textCursor()
+        if mtype == "image":
+            file_path, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Images (*.png *.jpg *.jpeg *.webp *.gif)")
+            if file_path:
+                file_path = file_path.replace("\\", "/") 
+                name = os.path.basename(file_path)
+                cursor.insertText(f"![{name}]({file_path})")
+        elif mtype == "link":
+            url, ok = QInputDialog.getText(self, "Insert Link", "URL:")
+            if ok and url:
+                cursor.insertText(f"[Link Text]({url})")
+        
+        self.editor.setFocus()
 
 class ZoomWindow(QDialog):
     def __init__(self, image_path, parent=None):

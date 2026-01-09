@@ -9,15 +9,16 @@ from PySide6.QtWidgets import (
     QSplitter, QApplication
 )
 from PySide6.QtCore import Qt, QUrl, QMimeData, QTimer
-from PySide6.QtGui import QDrag, QPixmap
+from PySide6.QtGui import QDrag, QPixmap, QPainter, QColor
 
 from .base import BaseManagerWidget
 from ..core import (
     SUPPORTED_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, 
-    HAS_MARKDOWN, calculate_structure_path
+    HAS_MARKDOWN, calculate_structure_path, PREVIEW_EXTENSIONS
 )
 from ..ui_components import SmartMediaWidget, ZoomWindow, TaskMonitorWidget
-from ..workers import ImageLoader
+from .example import ExampleTabWidget
+from ..workers import ImageLoader, ThumbnailWorker
 
 try:
     import markdown
@@ -55,39 +56,64 @@ class WorkflowManagerWidget(BaseManagerWidget):
         
         # Buttons
         center_btn_layout = QHBoxLayout()
+        self.btn_replace = QPushButton("🖼️ Change Thumb")
+        self.btn_replace.clicked.connect(self.replace_thumbnail)
+        center_btn_layout.addWidget(self.btn_replace)
+        
         btn_open = QPushButton("📂 Open Folder")
         btn_open.clicked.connect(self.open_current_folder)
         center_btn_layout.addWidget(btn_open)
         self.center_layout.addLayout(center_btn_layout)
 
+    def replace_thumbnail(self):
+        if not self.current_wf_path: return
+        
+        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select New Thumbnail/Preview", "", filters)
+        if not file_path: return
+        
+        base = os.path.splitext(self.current_wf_path)[0]
+        ext = os.path.splitext(file_path)[1].lower()
+        target_path = base + ext
+
+        self.btn_replace.setEnabled(False)
+        self.show_status("Processing thumbnail...")
+        
+        is_video = (ext in VIDEO_EXTENSIONS)
+        self.thumb_worker = ThumbnailWorker(file_path, target_path, is_video)
+        self.thumb_worker.finished.connect(self._on_thumb_worker_finished)
+        self.thumb_worker.start()
+
+    def _on_thumb_worker_finished(self, success, msg):
+        self.btn_replace.setEnabled(True)
+        self.show_status(msg)
+        if success:
+             self._load_details(self.current_wf_path)
+        else:
+             QMessageBox.warning(self, "Error", f"Failed: {msg}")
+
+    def show_status(self, msg):
+        if self.parent_window:
+            self.parent_window.statusBar().showMessage(msg, 3000)
+        else:
+            print(msg)
+
     def init_right_panel(self):
         self.tabs = QTabWidget()
         
         # Tab 1: Note (Markdown)
-        self.tab_note = QWidget()
-        note_layout = QVBoxLayout(self.tab_note)
-        note_controls = QHBoxLayout()
-        self.btn_edit_note = QPushButton("✏️ Edit")
-        self.btn_edit_note.setCheckable(True)
-        self.btn_edit_note.clicked.connect(self.toggle_edit_note)
-        self.btn_save_note = QPushButton("💾 Save")
-        self.btn_save_note.clicked.connect(self.save_note)
-        self.btn_save_note.setVisible(False)
-        note_controls.addStretch()
-        note_controls.addWidget(self.btn_edit_note)
-        note_controls.addWidget(self.btn_save_note)
-        note_layout.addLayout(note_controls)
-        
-        self.note_stack = QStackedWidget()
-        self.txt_browser = QTextBrowser()
-        self.txt_browser.setOpenExternalLinks(True)
-        self.txt_edit = QTextEdit()
-        self.note_stack.addWidget(self.txt_browser)
-        self.note_stack.addWidget(self.txt_edit)
-        note_layout.addWidget(self.note_stack)
+        from ..ui_components import MarkdownNoteWidget
+        self.tab_note = MarkdownNoteWidget(font_scale=self.app_settings.get("font_scale", 100))
+        self.tab_note.save_requested.connect(self.save_note)
+        self.tab_note.set_media_handler(self.handle_media_insert)
         self.tabs.addTab(self.tab_note, "Note")
         
-        # Tab 2: Raw JSON
+        # Tab 2: Example
+        self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread)
+        self.tab_example.status_message.connect(self.show_status)
+        self.tabs.addTab(self.tab_example, "Example")
+        
+        # Tab 3: Raw JSON
         self.tab_raw = QWidget()
         raw_layout = QVBoxLayout(self.tab_raw)
         self.txt_raw = QTextBrowser()
@@ -126,7 +152,7 @@ class WorkflowManagerWidget(BaseManagerWidget):
         # Find thumbnail: same name as json but with image extension
         base = os.path.splitext(path)[0]
         preview_path = None
-        for ext in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS:
+        for ext in PREVIEW_EXTENSIONS:
             if os.path.exists(base + ext):
                 preview_path = base + ext
                 break
@@ -154,8 +180,8 @@ class WorkflowManagerWidget(BaseManagerWidget):
                 with open(json_desc_path, 'r', encoding='utf-8') as f:
                     note_content = json.load(f).get("user_note", "")
             except: pass
-        self.txt_edit.setText(note_content)
-        self._update_note_display(note_content)
+        self.tab_note.set_text(note_content)
+        self.tab_example.load_examples(path)
 
     def get_cache_dir(self):
         custom_path = self.app_settings.get("cache_path", "").strip()
@@ -167,25 +193,8 @@ class WorkflowManagerWidget(BaseManagerWidget):
             except: pass
         return CACHE_DIR_NAME
 
-    def _update_note_display(self, text):
-        scale = int(self.app_settings.get("font_scale", 100))
-        font_size_pt = max(8, int(10 * (scale / 100.0))) 
-        css = f"<style>body {{ color: black; background-color: white; font-size: {font_size_pt}pt; font-family: sans-serif; }}</style>"
-        if HAS_MARKDOWN:
-            html = markdown.markdown(text)
-            self.txt_browser.setHtml(css + html)
-        else:
-            self.txt_browser.setHtml(css + f"<pre>{text}</pre>")
-
-    def toggle_edit_note(self):
-        is_edit = self.btn_edit_note.isChecked()
-        self.note_stack.setCurrentIndex(1 if is_edit else 0)
-        self.btn_save_note.setVisible(is_edit)
-        if not is_edit: self._update_note_display(self.txt_edit.toPlainText())
-
-    def save_note(self):
+    def save_note(self, text):
         if not self.current_wf_path: return
-        text = self.txt_edit.toPlainText()
         
         cache_dir = calculate_structure_path(self.current_wf_path, self.get_cache_dir(), self.directories)
         if not os.path.exists(cache_dir): os.makedirs(cache_dir)
@@ -197,12 +206,39 @@ class WorkflowManagerWidget(BaseManagerWidget):
             with open(json_desc_path, 'w', encoding='utf-8') as f: 
                 json.dump(data, f, indent=4, ensure_ascii=False)
             
-            self._update_note_display(text)
-            self.btn_edit_note.setChecked(False)
-            self.toggle_edit_note()
             if self.parent_window: self.parent_window.statusBar().showMessage("Note saved.", 2000)
         except Exception as e: 
             print(f"Save Error: {e}")
+
+    def handle_media_insert(self, mtype):
+        if not self.current_wf_path: 
+            QMessageBox.warning(self, "Error", "No workflow selected.")
+            return None
+            
+        if mtype not in ["image", "video"]: return None
+        
+        filters = "Images (*.png *.jpg *.jpeg *.webp *.gif)" if mtype == "image" else "Videos (*.mp4 *.webm)"
+        file_path, _ = QFileDialog.getOpenFileName(self, f"Select {mtype.title()}", "", filters)
+        if not file_path: return None
+        
+        cache_dir = calculate_structure_path(self.current_wf_path, self.get_cache_dir(), self.directories)
+        if not os.path.exists(cache_dir): os.makedirs(cache_dir)
+        
+        name = os.path.basename(file_path)
+        dest_path = os.path.join(cache_dir, name)
+        
+        try:
+            shutil.copy2(file_path, dest_path)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to copy file to cache: {e}")
+            return None
+            
+        # Use absolute path for reliability
+        dest_path = dest_path.replace("\\", "/")
+        if mtype == "image":
+            return f"![{name}]({dest_path})"
+        else:
+            return f'<video src="{dest_path}" controls width="100%"></video>'
 
     def on_preview_click(self):
         path = self.preview_lbl.get_current_path()
@@ -244,11 +280,21 @@ class WorkflowDraggableMediaWidget(SmartMediaWidget):
             mime_data.setUrls([QUrl.fromLocalFile(self.json_path)])
             drag.setMimeData(mime_data)
             
-            # Set drag pixmap (thumbnail)
-            if not self.is_video and self.lbl_image.pixmap():
-                drag_pixmap = self.lbl_image.pixmap().scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                drag.setPixmap(drag_pixmap)
-                drag.setHotSpot(drag_pixmap.rect().center())
+            # Create default drag pixmap for JSON
+            pix = QPixmap(100, 100)
+            pix.fill(Qt.transparent)
+            painter = QPainter(pix)
+            painter.setBrush(QColor(60, 60, 60))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(0, 0, 100, 100, 10, 10)
+            painter.setPen(QColor(255, 255, 255))
+            font = painter.font()
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(pix.rect(), Qt.AlignCenter, "JSON\nWorkflow")
+            painter.end()
+            drag.setPixmap(pix)
+            drag.setHotSpot(pix.rect().center())
             
             drag.exec(Qt.CopyAction)
             self._drag_start_pos = None

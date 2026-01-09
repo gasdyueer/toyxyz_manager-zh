@@ -20,6 +20,7 @@ from ..ui_components import (
     SmartMediaWidget, TaskMonitorWidget, DownloadDialog, 
     FileCollisionDialog, OverwriteConfirmDialog, ZoomWindow
 )
+from .example import ExampleTabWidget
 from ..workers import ImageLoader, ThumbnailWorker, MetadataWorker, ModelDownloadWorker
 
 try:
@@ -41,8 +42,7 @@ class ModelManagerWidget(BaseManagerWidget):
         self.download_queue = []
         self.is_chain_processing = False
         self.last_download_dir = None
-        self.example_images = []
-        self.current_example_idx = 0
+        self.last_download_dir = None
         
         self.image_loader_thread = ImageLoader()
         self.image_loader_thread.start()
@@ -93,31 +93,15 @@ class ModelManagerWidget(BaseManagerWidget):
         self.tabs = QTabWidget()
         
         # Tab 1: Note
-        self.tab_note = QWidget()
-        note_layout = QVBoxLayout(self.tab_note)
-        note_layout.setContentsMargins(5,5,5,5)
-        note_controls = QHBoxLayout()
-        self.btn_edit_note = QPushButton("✏️ Edit")
-        self.btn_edit_note.setCheckable(True)
-        self.btn_edit_note.clicked.connect(self.toggle_edit_note)
-        self.btn_save_note = QPushButton("💾 Save")
-        self.btn_save_note.clicked.connect(self.save_note)
-        self.btn_save_note.setVisible(False)
-        note_controls.addStretch()
-        note_controls.addWidget(self.btn_edit_note)
-        note_controls.addWidget(self.btn_save_note)
-        note_layout.addLayout(note_controls)
-        self.note_stack = QStackedWidget()
-        self.txt_browser = QTextBrowser()
-        self.txt_browser.setOpenExternalLinks(True)
-        self.txt_edit = QTextEdit()
-        self.note_stack.addWidget(self.txt_browser)
-        self.note_stack.addWidget(self.txt_edit)
-        note_layout.addWidget(self.note_stack)
+        from ..ui_components import MarkdownNoteWidget
+        self.tab_note = MarkdownNoteWidget(font_scale=self.app_settings.get("font_scale", 100))
+        self.tab_note.save_requested.connect(self.save_note)
+        self.tab_note.set_media_handler(self.handle_media_insert)
         self.tabs.addTab(self.tab_note, "Note")
         
         # Tab 2: Example
-        self._init_example_tab()
+        self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread)
+        self.tab_example.status_message.connect(self.show_status)
         self.tabs.addTab(self.tab_example, "Example")
         
         # Tab 3: Tasks
@@ -126,96 +110,7 @@ class ModelManagerWidget(BaseManagerWidget):
         
         self.right_layout.addWidget(self.tabs)
 
-    def _init_example_tab(self):
-        self.tab_example = QWidget()
-        ex_main_layout = QVBoxLayout(self.tab_example)
-        ex_main_layout.setContentsMargins(5,5,5,5)
-        self.ex_splitter = QSplitter(Qt.Vertical)
-        ex_img_widget = QWidget()
-        ex_img_layout = QVBoxLayout(ex_img_widget)
-        ex_img_layout.setContentsMargins(0,0,0,0)
-        
-        self.lbl_ex_img = SmartMediaWidget(loader=self.image_loader_thread)
-        self.lbl_ex_img.setMinimumSize(100, 100)
-        self.lbl_ex_img.clicked.connect(self.on_example_click)
-        
-        ex_img_layout.addWidget(self.lbl_ex_img)
-        nav_layout = QHBoxLayout()
-        self.btn_prev = QPushButton("◀")
-        self.btn_next = QPushButton("▶")
-        self.lbl_ex_count = QLabel("0/0")
-        self.lbl_ex_wf = QLabel("No Workflow")
-        self.btn_prev.clicked.connect(lambda: self.change_example(-1))
-        self.btn_next.clicked.connect(lambda: self.change_example(1))
-        nav_layout.addWidget(self.btn_prev)
-        nav_layout.addWidget(self.lbl_ex_count)
-        nav_layout.addWidget(self.lbl_ex_wf)
-        nav_layout.addStretch()
-        nav_layout.addWidget(self.btn_next)
-        ex_img_layout.addLayout(nav_layout)
-        tools_layout = QHBoxLayout()
-        btn_add = QPushButton("➕")
-        btn_add.setToolTip("Add Image")
-        btn_add.clicked.connect(self.add_example_image)
-        btn_del = QPushButton("➖")
-        btn_del.setToolTip("Delete Image")
-        btn_del.clicked.connect(self.delete_example_image)
-        btn_open = QPushButton("📂")
-        btn_open.setToolTip("Open Folder")
-        btn_open.clicked.connect(self.open_example_folder)
-        btn_json = QPushButton("📄")
-        btn_json.setToolTip("Inject Workflow (JSON)")
-        btn_json.clicked.connect(self.inject_workflow)
-        btn_save_meta = QPushButton("💾")
-        btn_save_meta.setToolTip("Save Metadata")
-        btn_save_meta.clicked.connect(self.save_example_metadata)
-        for b in [btn_add, btn_del, btn_open, btn_json, btn_save_meta]:
-            b.setFixedWidth(40)
-            tools_layout.addWidget(b)
-        tools_layout.addStretch()
-        ex_img_layout.addLayout(tools_layout)
-        self.ex_splitter.addWidget(ex_img_widget)
-        ex_meta_widget = QWidget()
-        ex_meta_layout = QVBoxLayout(ex_meta_widget)
-        ex_meta_layout.setContentsMargins(0,0,0,0)
-        pos_header = QHBoxLayout()
-        pos_header.addWidget(QLabel("Positive:"))
-        btn_copy_pos = QPushButton("📋")
-        btn_copy_pos.setFixedWidth(30)
-        btn_copy_pos.setToolTip("Copy Positive Prompt")
-        btn_copy_pos.clicked.connect(lambda: self._copy_to_clipboard(self.txt_ex_pos.toPlainText(), "Positive Prompt"))
-        pos_header.addWidget(btn_copy_pos)
-        pos_header.addStretch()
-        ex_meta_layout.addLayout(pos_header)
-        self.txt_ex_pos = QTextEdit()
-        self.txt_ex_pos.setPlaceholderText("Positive Prompt")
-        ex_meta_layout.addWidget(self.txt_ex_pos, 1)
-        neg_header = QHBoxLayout()
-        neg_header.addWidget(QLabel("Negative:"))
-        btn_copy_neg = QPushButton("📋")
-        btn_copy_neg.setFixedWidth(30)
-        btn_copy_neg.setToolTip("Copy Negative Prompt")
-        btn_copy_neg.clicked.connect(lambda: self._copy_to_clipboard(self.txt_ex_neg.toPlainText(), "Negative Prompt"))
-        neg_header.addWidget(btn_copy_neg)
-        neg_header.addStretch()
-        ex_meta_layout.addLayout(neg_header)
-        self.txt_ex_neg = QTextEdit()
-        self.txt_ex_neg.setPlaceholderText("Negative Prompt")
-        self.txt_ex_neg.setStyleSheet("background-color: #fff0f0;")
-        ex_meta_layout.addWidget(self.txt_ex_neg, 1)
-        self.param_widgets = {}
-        grid_group = QGroupBox("Generation Settings")
-        grid_layout = QGridLayout(grid_group)
-        params = ["Steps", "Sampler", "CFG", "Seed", "Schedule"]
-        for i, p in enumerate(params):
-            grid_layout.addWidget(QLabel(p), 0, i)
-            le = QLineEdit()
-            self.param_widgets[p] = le
-            grid_layout.addWidget(le, 1, i)
-        ex_meta_layout.addWidget(grid_group)
-        self.ex_splitter.addWidget(ex_meta_widget)
-        ex_main_layout.addWidget(self.ex_splitter)
-        self.ex_splitter.setSizes([500, 300])
+
 
     # === Interaction Logic ===
     
@@ -270,9 +165,8 @@ class ModelManagerWidget(BaseManagerWidget):
                 with open(json_path, 'r', encoding='utf-8') as f:
                     note_content = json.load(f).get("user_note", "")
             except: pass
-        self.txt_edit.setText(note_content)
-        self._update_note_display(note_content)
-        self._load_examples(path)
+        self.tab_note.set_text(note_content)
+        self.tab_example.load_examples(path)
 
     def get_cache_dir(self):
         custom_path = self.app_settings.get("cache_path", "").strip()
@@ -284,32 +178,58 @@ class ModelManagerWidget(BaseManagerWidget):
             except: pass
         return CACHE_DIR_NAME
 
-    def _update_note_display(self, text):
-        scale = int(self.app_settings.get("font_scale", 100))
-        # Default font size is hardcoded as we don't have easy access to main window's font
-        # Assuming 10pt base
-        font_size_pt = max(8, int(10 * (scale / 100.0))) 
-        css = f"<style>img {{ max-width: 100%; height: auto; }} body {{ color: black; background-color: white; font-size: {font_size_pt}pt; font-family: sans-serif; }}</style>"
-        if HAS_MARKDOWN:
-            html = markdown.markdown(text)
-            self.txt_browser.setHtml(css + html)
-        else:
-            self.txt_browser.setHtml(css + f"<pre>{text}</pre>")
-
-    def toggle_edit_note(self):
-        is_edit = self.btn_edit_note.isChecked()
-        self.note_stack.setCurrentIndex(1 if is_edit else 0)
-        self.btn_save_note.setVisible(is_edit)
-        if not is_edit: self._update_note_display(self.txt_edit.toPlainText())
-
-    def save_note(self):
+    def save_note(self, text):
         if not self.current_model_path: return
-        text = self.txt_edit.toPlainText()
-        self._save_json_direct(self.current_model_path, text)
-        self._update_note_display(text)
-        self.btn_edit_note.setChecked(False)
-        self.toggle_edit_note()
-        self.show_status("Note saved.")
+        try:
+            base, ext = os.path.splitext(self.current_model_path)
+            note_path = base + ".md"
+            with open(note_path, "w", encoding="utf-8") as f:
+                f.write(text)
+            
+            # Also update JSON description if exists
+            json_path = base + ".json"
+            if os.path.exists(json_path):
+                try:
+                    with open(json_path, "r", encoding="utf-8") as jf:
+                        data = json.load(jf)
+                    data["description"] = text
+                    with open(json_path, "w", encoding="utf-8") as jf:
+                        json.dump(data, jf, indent=4)
+                except: pass
+                
+            if self.parent_window: self.parent_window.statusBar().showMessage("Note saved.", 2000)
+        except Exception as e: 
+            print(f"Save Error: {e}")
+
+    def handle_media_insert(self, mtype):
+        if not self.current_model_path: 
+            QMessageBox.warning(self, "Error", "No model selected.")
+            return None
+            
+        if mtype not in ["image", "video"]: return None
+        
+        filters = "Images (*.png *.jpg *.jpeg *.webp *.gif)" if mtype == "image" else "Videos (*.mp4 *.webm)"
+        file_path, _ = QFileDialog.getOpenFileName(self, f"Select {mtype.title()}", "", filters)
+        if not file_path: return None
+        
+        cache_dir = calculate_structure_path(self.current_model_path, self.get_cache_dir(), self.directories)
+        if not os.path.exists(cache_dir): os.makedirs(cache_dir)
+        
+        name = os.path.basename(file_path)
+        dest_path = os.path.join(cache_dir, name)
+        
+        try:
+            shutil.copy2(file_path, dest_path)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to copy file to cache: {e}")
+            return None
+            
+        # Use absolute path for reliability in QTextBrowser
+        dest_path = dest_path.replace("\\", "/")
+        if mtype == "image":
+            return f"![{name}]({dest_path})"
+        else:
+            return f'<video src="{dest_path}" controls width="100%"></video>'
 
     def _save_json_direct(self, model_path, content):
         cache_dir = calculate_structure_path(model_path, self.get_cache_dir(), self.directories)
@@ -324,168 +244,7 @@ class ModelManagerWidget(BaseManagerWidget):
             with open(json_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4, ensure_ascii=False)
         except Exception as e: print(f"Save Error: {e}")
 
-    # === Example Tab Logic (Simplified copy from main_window) ===
-    def _load_examples(self, model_path):
-        self.example_images = []
-        self.current_example_idx = 0
-        self._clear_example_meta()
-        cache_dir = calculate_structure_path(model_path, self.get_cache_dir(), self.directories)
-        preview_dir = os.path.join(cache_dir, "preview")
-        if os.path.exists(preview_dir):
-            valid_exts = tuple(list(IMAGE_EXTENSIONS) + list(VIDEO_EXTENSIONS))
-            self.example_images = [os.path.join(preview_dir, f) for f in os.listdir(preview_dir) if f.lower().endswith(valid_exts)]
-            self.example_images.sort()
-        self._update_example_ui()
 
-    def _update_example_ui(self):
-        total = len(self.example_images)
-        if total == 0:
-            self.lbl_ex_img.set_media(None)
-            self.lbl_ex_count.setText("0/0")
-            self.lbl_ex_wf.setText("")
-            self._clear_example_meta()
-        else:
-            self.current_example_idx = max(0, min(self.current_example_idx, total - 1))
-            self.lbl_ex_count.setText(f"{self.current_example_idx + 1}/{total}")
-            path = self.example_images[self.current_example_idx]
-            self.lbl_ex_img.set_media(path)
-            
-            if os.path.splitext(path)[1].lower() not in VIDEO_EXTENSIONS:
-                self._parse_and_display_meta(path)
-            else:
-                self._clear_example_meta()
-                self.lbl_ex_wf.setText("Video")
-
-    def change_example(self, delta):
-        if not self.example_images: return
-        self.current_example_idx = (self.current_example_idx + delta) % len(self.example_images)
-        self._update_example_ui()
-
-    def add_example_image(self):
-        if not self.current_model_path: return
-        filters = "Media (*.png *.jpg *.webp *.mp4 *.webm *.gif)"
-        files, _ = QFileDialog.getOpenFileNames(self, "Select Files", "", filters)
-        if not files: return
-        cache_dir = calculate_structure_path(self.current_model_path, self.get_cache_dir(), self.directories)
-        preview_dir = os.path.join(cache_dir, "preview")
-        if not os.path.exists(preview_dir): os.makedirs(preview_dir)
-        for f in files:
-            try: shutil.copy2(f, preview_dir)
-            except: pass
-        self._load_examples(self.current_model_path)
-
-    def delete_example_image(self):
-        if not self.example_images: return
-        path = self.example_images[self.current_example_idx]
-        if QMessageBox.question(self, "Delete", "Delete this file?") == QMessageBox.Yes:
-            try: os.remove(path)
-            except: pass
-            self._load_examples(self.current_model_path)
-
-    def open_example_folder(self):
-        if not self.example_images: return
-        f = os.path.dirname(self.example_images[0])
-        try: os.startfile(f)
-        except Exception as e: self.show_status(f"Failed to open folder: {e}")
-
-    def inject_workflow(self):
-        # ... (Existing logic using QFileDialog and Image/PngInfo) ...
-        # For brevity, implementing minimal version or assume similar logic
-        if not self.example_images: return
-        path = self.example_images[self.current_example_idx]
-        if os.path.splitext(path)[1].lower() in VIDEO_EXTENSIONS:
-            QMessageBox.warning(self, "Error", "Cannot inject workflow into video files.")
-            return
-
-        json_file, _ = QFileDialog.getOpenFileName(self, "Select Workflow", "", "JSON (*.json)")
-        if not json_file: return
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f: wf_data = f.read()
-            json.loads(wf_data) 
-            img = Image.open(path)
-            img.load() 
-            metadata = PngInfo()
-            if img.info:
-                for k, v in img.info.items():
-                    if k == "workflow" or k == "prompt": continue
-                    if isinstance(v, str): metadata.add_text(k, v)
-            metadata.add_text("workflow", wf_data)
-            save_kwargs = {"pnginfo": metadata}
-            if "exif" in img.info: save_kwargs["exif"] = img.info["exif"]
-            if "icc_profile" in img.info: save_kwargs["icc_profile"] = img.info["icc_profile"]
-            
-            # Save (handling PNG conversion if needed, simplified here to assume PNG or overwrites)
-            # In real code, copy the full logic from main_window.py
-            if not path.lower().endswith(".png"):
-               QMessageBox.warning(self, "Wait", "Only PNG supported for now (for brevity).")
-               return
-
-            tmp = path + ".tmp.png"
-            img.save(tmp, **save_kwargs)
-            img.close()
-            shutil.move(tmp, path)
-            QMessageBox.information(self, "Success", "Workflow replaced successfully.")
-            self._parse_and_display_meta(path)
-        except Exception as e: QMessageBox.warning(self, "Error", f"Failed to inject workflow: {e}")
-
-    def save_example_metadata(self):
-        # ... (Copied logic) ...
-        pass # Keeping it short, assume implemented similar to inject_workflow
-
-    def _clear_example_meta(self):
-        self.txt_ex_pos.clear()
-        self.txt_ex_neg.clear()
-        for w in self.param_widgets.values(): w.clear()
-        self.lbl_ex_wf.setText("No Workflow")
-        self.lbl_ex_wf.setStyleSheet("color: grey")
-
-    def _parse_and_display_meta(self, path):
-        self._clear_example_meta()
-        try:
-            img = Image.open(path)
-            info = img.info
-            if "workflow" in info or "prompt" in info:
-                self.lbl_ex_wf.setText("✅ Workflow")
-                self.lbl_ex_wf.setStyleSheet("color: green; font-weight: bold")
-            text = info.get("parameters", "")
-            if not text and img.format in ["JPEG", "WEBP"]:
-                try: 
-                    exif = img._getexif()
-                    if exif: text = str(exif.get(0x9286, ""))
-                except: pass
-            if text:
-                pos = ""; neg = ""; params = ""
-                parts = text.split("Negative prompt:")
-                if len(parts) > 1:
-                    pos = parts[0].strip()
-                    remainder = parts[1]
-                else:
-                    if "Steps:" in text:
-                        pos = text.split("Steps:")[0].strip()
-                        remainder = "Steps:" + text.split("Steps:")[1]
-                    else:
-                        pos = text; remainder = ""
-                parts2 = remainder.split("Steps:")
-                if len(parts2) > 1:
-                    neg = parts2[0].strip()
-                    params = "Steps:" + parts2[1]
-                else:
-                    neg = remainder.strip()
-                self.txt_ex_pos.setText(pos)
-                self.txt_ex_neg.setText(neg)
-                p_map = {}
-                for p in params.split(','):
-                    if ':' in p: k, v = p.split(':', 1); p_map[k.strip()] = v.strip()
-                key_map = {"Steps": "Steps", "Sampler": "Sampler", "CFG scale": "CFG", "Seed": "Seed", "Model": "Model"}
-                for k, widget_key in key_map.items():
-                    if k in p_map and widget_key in self.param_widgets:
-                        self.param_widgets[widget_key].setText(p_map[k])
-        except Exception as e: print(f"Meta parse error: {e}")
-
-    def _copy_to_clipboard(self, text, name):
-        if text:
-            QApplication.clipboard().setText(text)
-            self.show_status(f"{name} copied to clipboard.")
 
     # === Civitai / Download Logic ===
     def run_civitai(self, mode):
@@ -529,9 +288,8 @@ class ModelManagerWidget(BaseManagerWidget):
             desc = data.get("description", "")
             self._save_json_direct(model_path, desc)
             if self.current_model_path == model_path:
-                self.txt_edit.setText(desc)
-                self._update_note_display(desc)
-                self._load_examples(model_path)
+                self.tab_note.set_text(desc)
+                self.tab_example.load_examples(model_path)
                 QTimer.singleShot(200, lambda: self._load_details(model_path))
 
     def _on_worker_finished(self):
@@ -687,12 +445,7 @@ class ModelManagerWidget(BaseManagerWidget):
         if path and os.path.exists(path) and os.path.splitext(path)[1].lower() not in VIDEO_EXTENSIONS:
             ZoomWindow(path, self).show()
 
-    def on_example_click(self):
-        path = self.lbl_ex_img.get_current_path()
-        if not path: return
-        if os.path.splitext(path)[1].lower() in VIDEO_EXTENSIONS:
-            return
-        if os.path.exists(path): ZoomWindow(path, self).show()
+
 
     def open_current_folder(self):
         if self.current_model_path:
