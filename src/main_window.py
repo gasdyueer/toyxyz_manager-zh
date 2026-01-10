@@ -19,15 +19,12 @@ class ModelManagerWindow(QMainWindow):
         self.setWindowTitle("toyxyz manager")
         self.resize(1500, 950)
         
-        self.app_settings = {"civitai_api_key": "", "hf_api_key": "", "font_scale": 100, "cache_path": ""}
+        self.app_settings = {"civitai_api_key": "", "hf_api_key": "", "cache_path": ""}
         self.directories = {}
         
         # Load Config
         self.load_config_data()
         
-        # Apply Font Scale
-        self._apply_font_scale()
-
         if not HAS_PILLOW:
             QTimer.singleShot(500, lambda: QMessageBox.warning(
                 self, "Missing Library", "Pillow is missing. Image features will not work.\n\nRun: pip install pillow"
@@ -81,25 +78,14 @@ class ModelManagerWindow(QMainWindow):
         data = {"__settings__": self.app_settings}
         save_config(data)
 
-    def _apply_font_scale(self):
-        scale = int(self.app_settings.get("font_scale", 100))
-        default_font = QApplication.font()
-        default_size = default_font.pointSize()
-        if default_size <= 0: default_size = 10
-        
-        new_size = max(6, int(default_size * (scale / 100.0)))
-        font = QApplication.font()
-        font.setPointSize(new_size)
-        QApplication.setFont(font)
-
     def open_settings(self):
         dlg = SettingsDialog(self, self.app_settings, self.directories)
         if dlg.exec():
             new_data = dlg.get_data()
-            self.app_settings.update(new_data)
+            # new_data contains '__settings__' which is self.app_settings itself, causing circular ref if we update.
+            # self.app_settings is already modified in-place by SettingsDialog.
             self.directories = new_data["directories"]
             self.save_config_data()
-            self._apply_font_scale()
             
             # Refresh all managers
             # We need to re-filter directories for each manager because they might have changed modes or been added/removed

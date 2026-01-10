@@ -79,6 +79,10 @@ class WorkflowManagerWidget(BaseManagerWidget):
         self.btn_replace.setEnabled(False)
         self.show_status("Processing thumbnail...")
         
+        # [Fix] Unload image to be safe against file locks
+        self.preview_lbl.set_media(None)
+        QApplication.processEvents()
+
         is_video = (ext in VIDEO_EXTENSIONS)
         self.thumb_worker = ThumbnailWorker(file_path, target_path, is_video)
         self.thumb_worker.finished.connect(self._on_thumb_worker_finished)
@@ -103,7 +107,7 @@ class WorkflowManagerWidget(BaseManagerWidget):
         
         # Tab 1: Note (Markdown)
         from ..ui_components import MarkdownNoteWidget
-        self.tab_note = MarkdownNoteWidget(font_scale=self.app_settings.get("font_scale", 100))
+        self.tab_note = MarkdownNoteWidget()
         self.tab_note.save_requested.connect(self.save_note)
         self.tab_note.set_media_handler(self.handle_media_insert)
         self.tabs.addTab(self.tab_note, "Note")

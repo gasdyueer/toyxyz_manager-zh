@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QFormLayout, QSpinBox, QListWidget, QInputDialog, QGridLayout, QGroupBox, 
     QApplication, QMessageBox, QComboBox, QTextBrowser, QTextEdit
 )
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal, QMimeData, QSize
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal, QMimeData, QSize, QBuffer, QByteArray
 from PySide6.QtGui import QPixmap, QDrag, QBrush, QColor, QImageReader
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -100,17 +100,31 @@ class SmartMediaWidget(QWidget):
 
     def _load_image_sync(self, path):
         # 동기 로딩 시에도 QImageReader 사용
-        reader = QImageReader(path)
-        reader.setAutoTransform(True)
-        if reader.size().width() > 1024:
-            reader.setScaledSize(reader.size().scaled(1024, 1024, Qt.KeepAspectRatio))
-        img = reader.read()
-        
-        if not img.isNull():
-            self._original_pixmap = QPixmap.fromImage(img)
-            self._perform_resize()
-        else:
-            self.lbl_image.setText("Load Failed")
+        try:
+            # [Fix] Read file to memory first for sync loading too
+            with open(path, "rb") as f:
+                raw_data = f.read()
+            
+            byte_array = QByteArray(raw_data)
+            buffer = QBuffer(byte_array)
+            buffer.open(QBuffer.ReadOnly)
+
+            reader = QImageReader(buffer)
+            reader.setAutoTransform(True)
+            if reader.size().width() > 1024:
+                reader.setScaledSize(reader.size().scaled(1024, 1024, Qt.KeepAspectRatio))
+            img = reader.read()
+            
+            if not img.isNull():
+                self._original_pixmap = QPixmap.fromImage(img)
+                self._perform_resize()
+            else:
+                self.lbl_image.setText("Load Failed")
+                
+            buffer.close()
+        except Exception as e:
+            print(f"Sync load error: {e}")
+            self.lbl_image.setText("Load Error")
 
     def _on_image_loaded(self, path, image):
         if path == self.current_path and not self.is_video:
@@ -319,13 +333,13 @@ class TaskMonitorWidget(QWidget):
         self.table.setHorizontalHeaderLabels(["Task", "File / Info", "Status", "%"])
         
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
-        self.table.setColumnWidth(0, 100) 
+        self.table.setColumnWidth(0, 80) 
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
-        self.table.setColumnWidth(1, 350)
+        self.table.setColumnWidth(1, 150)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Interactive)
-        self.table.setColumnWidth(2, 100)
+        self.table.setColumnWidth(2, 80)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        self.table.setColumnWidth(3, 50)
+        self.table.setColumnWidth(3, 40)
         
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.verticalHeader().setVisible(False)
@@ -518,12 +532,6 @@ class SettingsDialog(QDialog):
         self.entry_hf_key = QLineEdit(self.settings.get("hf_api_key", ""))
         self.entry_hf_key.setPlaceholderText("Paste your Hugging Face Token here (Optional)")
         form_layout.addRow("Hugging Face Token:", self.entry_hf_key)
-        self.spin_font = QSpinBox()
-        self.spin_font.setRange(50, 200)
-        self.spin_font.setSingleStep(5)
-        self.spin_font.setSuffix("%")
-        self.spin_font.setValue(int(self.settings.get("font_scale", 100)))
-        form_layout.addRow("Font Scale:", self.spin_font)
         self.entry_cache = QLineEdit(self.settings.get("cache_path", ""))
         self.entry_cache.setPlaceholderText("Default: ./cache (Leave empty for default)")
         btn_browse_cache = QPushButton("📂")
@@ -637,7 +645,6 @@ class SettingsDialog(QDialog):
         # Update settings dict
         self.settings["civitai_api_key"] = self.entry_civitai_key.text().strip()
         self.settings["hf_api_key"] = self.entry_hf_key.text().strip()
-        self.settings["font_scale"] = self.spin_font.value()
         self.settings["cache_path"] = self.entry_cache.text().strip()
         
         # Return updated structure
@@ -652,9 +659,8 @@ class SettingsDialog(QDialog):
 class MarkdownNoteWidget(QWidget):
     save_requested = Signal(str)
 
-    def __init__(self, parent=None, font_scale=100):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.font_scale = font_scale
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(5,5,5,5)
@@ -722,8 +728,9 @@ class MarkdownNoteWidget(QWidget):
 
     def update_preview(self):
         text = self.editor.toPlainText()
-        scale = self.font_scale
-        font_size_pt = max(8, int(10 * (scale / 100.0))) 
+        # Default font size logic or just let Qt handle it
+        # Fixed reasonable default for preview
+        font_size_pt = 10 
         css = f"<style>img {{ max-width: 100%; height: auto; }} body {{ color: black; background-color: white; font-size: {font_size_pt}pt; font-family: sans-serif; }}</style>"
         try:
             import markdown

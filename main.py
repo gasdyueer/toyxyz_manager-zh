@@ -1,4 +1,9 @@
 import sys
+import os
+
+# Suppress verbose FFmpeg/Qt logs
+os.environ["QT_LOGGING_RULES"] = "qt.multimedia*=false"
+
 from PySide6.QtWidgets import QApplication
 from src.main_window import ModelManagerWindow
 

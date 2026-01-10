@@ -8,7 +8,7 @@ import concurrent.futures
 from collections import deque
 import requests
 
-from PySide6.QtCore import QThread, Signal, QMutex, QWaitCondition, Qt
+from PySide6.QtCore import QThread, Signal, QMutex, QWaitCondition, Qt, QBuffer, QByteArray
 from PySide6.QtGui import QImage, QImageReader
 
 from .core import (
@@ -70,9 +70,18 @@ class ImageLoader(QThread):
                 if os.path.exists(path):
                     # [메모리 최적화] QImageReader를 사용하여 리사이징 로드
                     try:
-                        reader = QImageReader(path)
+                        # [Fix] Read file to memory first to release file handle immediately
+                        with open(path, "rb") as f:
+                            raw_data = f.read()
+                        
+                        byte_array = QByteArray(raw_data)
+                        buffer = QBuffer(byte_array)
+                        buffer.open(QBuffer.ReadOnly)
+
+                        reader = QImageReader(buffer)
                         reader.setAutoTransform(True) # EXIF 회전 반영
                         orig_size = reader.size()
+                        
                         # 미리보기용으로 너무 큰 이미지는 1024px로 제한
                         if orig_size.width() > 1024 or orig_size.height() > 1024:
                             reader.setScaledSize(orig_size.scaled(1024, 1024, Qt.KeepAspectRatio))
@@ -80,6 +89,9 @@ class ImageLoader(QThread):
                         loaded = reader.read()
                         if not loaded.isNull():
                             image = loaded
+                            
+                        # Buffer closes automatically or by GC, but explicit close is good habit
+                        buffer.close()
                     except Exception as e:
                         print(f"Image load error: {e}")
 
@@ -691,6 +703,7 @@ class ModelDownloadWorker(QThread):
                 self._wait_for_user()
                 
                 if self._decision == 'cancel':
+                    self.progress.emit(self.task_key, "Cancelled", 0)
                     self.finished.emit("Download Cancelled by User", "")
                     return
                 elif self._decision == 'rename':
@@ -699,6 +712,7 @@ class ModelDownloadWorker(QThread):
                 elif self._decision == 'overwrite':
                     pass 
                 else:
+                    self.progress.emit(self.task_key, "Cancelled", 0)
                     self.finished.emit("Download Cancelled", "")
                     return
 

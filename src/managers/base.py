@@ -21,6 +21,14 @@ class BaseManagerWidget(QWidget):
     def _init_base_ui(self):
         main_layout = QVBoxLayout(self)
         self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setStyleSheet("""
+            QSplitter::handle:horizontal {
+                width: 15px;
+            }
+            QSplitter::handle:vertical {
+                height: 15px;
+            }
+        """)
         
         # [Left Panel] 
         left_panel = QWidget()

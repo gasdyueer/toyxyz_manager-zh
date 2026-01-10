@@ -6,7 +6,7 @@ import time
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QTextEdit, 
     QFormLayout, QGridLayout, QTabWidget, QStackedWidget, QMessageBox, QGroupBox, QLineEdit, QFileDialog, QInputDialog,
-    QSplitter
+    QSplitter, QApplication
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
@@ -41,7 +41,6 @@ class ModelManagerWidget(BaseManagerWidget):
         self.selected_model_paths = []
         self.download_queue = []
         self.is_chain_processing = False
-        self.last_download_dir = None
         self.last_download_dir = None
         
         self.image_loader_thread = ImageLoader()
@@ -94,7 +93,7 @@ class ModelManagerWidget(BaseManagerWidget):
         
         # Tab 1: Note
         from ..ui_components import MarkdownNoteWidget
-        self.tab_note = MarkdownNoteWidget(font_scale=self.app_settings.get("font_scale", 100))
+        self.tab_note = MarkdownNoteWidget()
         self.tab_note.save_requested.connect(self.save_note)
         self.tab_note.set_media_handler(self.handle_media_insert)
         self.tabs.addTab(self.tab_note, "Note")
@@ -247,8 +246,9 @@ class ModelManagerWidget(BaseManagerWidget):
 
 
     # === Civitai / Download Logic ===
-    def run_civitai(self, mode):
-        targets = self.selected_model_paths
+    def run_civitai(self, mode, targets=None):
+        if targets is None:
+            targets = self.selected_model_paths
         if not targets: return
         
         manual_url = None
@@ -425,6 +425,10 @@ class ModelManagerWidget(BaseManagerWidget):
         target_path = base + ext
 
         self.btn_replace.setEnabled(False)
+        # [Fix] Unload image to be safe against file locks
+        self.preview_lbl.set_media(None)
+        QApplication.processEvents() # Force UI update/release
+
         self.show_status("Processing thumbnail...")
         
         is_video = (ext in VIDEO_EXTENSIONS)
@@ -458,3 +462,9 @@ class ModelManagerWidget(BaseManagerWidget):
             self.parent_window.statusBar().showMessage(msg, 3000)
         else:
             print(msg)
+
+    def closeEvent(self, event):
+        if hasattr(self, 'image_loader_thread'):
+            self.image_loader_thread.stop()
+            self.image_loader_thread.wait(1000)
+        super().closeEvent(event)
