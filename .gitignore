@@ -1,0 +1,10 @@
+# User requested ignores
+cache/
+**/__pycache__/
+*.pyc
+manager_config.json
+
+# Standard Python/Environment ignores
+venv/
+.env
+.DS_Store
