@@ -356,64 +356,61 @@ class ExampleTabWidget(QWidget):
     def _parse_and_display_meta(self, path):
         self._clear_meta()
         try:
+            from ..core import validate_comfy_metadata
+            
             with Image.open(path) as img:
                 info = img.info.copy() # Copy info dict so it persists after close
                 fmt = img.format # Save format
+                
+                # Use robust validation from core
+                detection_type = validate_comfy_metadata(img)
             
-            if "workflow" in info or "prompt" in info:
+            # Show generic "Workflow" regardless of type (ComfyUI or WebUI)
+            if detection_type:
                 self.lbl_wf_status.setText("✅ Workflow")
                 self.lbl_wf_status.setStyleSheet("color: green; font-weight: bold")
+            else:
+                 self.lbl_wf_status.setText("No Workflow")
+                 self.lbl_wf_status.setStyleSheet("color: grey")
             
             text = info.get("parameters", "")
             if not text and fmt in ["JPEG", "WEBP"]:
-                # Try to read Exif UserComment
-                # Try to read Exif UserComment
+                # Try to read Exif UserComment for PARAMETERS (not workflow, but gen info)
+                # Keep existing GenInfo-Only logic here as fallback if workflow check didn't already consume it?
+                # Actually, validate_comfy_metadata checks for JSON workflow. 
+                # Here we are looking for A1111 style 'parameters' text.
                 try:
-                    exif_data = img._getexif()
-                    if exif_data:
-                        # UserComment tag is 37510 (0x9286)
-                        user_comment = exif_data.get(37510)
-                        if user_comment:
-                            # 1. Strip Header
-                            payload = user_comment
-                            if isinstance(user_comment, bytes):
-                                if user_comment.startswith(b'UNICODE\0'):
-                                    payload = user_comment[8:]
-                                elif user_comment.startswith(b'ASCII\0\0\0'):
-                                    payload = user_comment[8:]
-                                
-                                # 2. Heuristic Decoding
-                                # Try common encodings and check for "Mojibake" or valid text
-                                candidates = []
-                                for enc in ['utf-8', 'utf-16le', 'utf-16be']:
-                                    try:
-                                        decoded = payload.decode(enc)
-                                        # Filter empty
-                                        if not decoded.strip(): continue
-                                        
-                                        # Heuristic: Valid generation info is mostly printable ASCII + some punctuation
-                                        # Count printable vs total
-                                        printable = sum(1 for c in decoded if c.isprintable() or c in '\n\r\t')
-                                        ratio = printable / len(decoded)
-                                        candidates.append((ratio, decoded))
-                                    except: pass
-                                
-                                # Pick the best result (highest printable ratio)
-                                if candidates:
-                                    candidates.sort(key=lambda x: x[0], reverse=True)
-                                    best_ratio, best_text = candidates[0]
-                                    if best_ratio > 0.8: # Threshold: at least 80% printable
-                                        text = best_text
-                            
-                            elif isinstance(user_comment, str):
-                                text = user_comment
+                    with Image.open(path) as img:
+                         exif_data = img._getexif()
+                         if exif_data:
+                            user_comment = exif_data.get(37510)
+                            if user_comment:
+                                payload = user_comment
+                                if isinstance(user_comment, bytes):
+                                    if user_comment.startswith(b'UNICODE\0'): payload = user_comment[8:]
+                                    elif user_comment.startswith(b'ASCII\0\0\0'): payload = user_comment[8:]
+                                    
+                                    candidates = []
+                                    for enc in ['utf-8', 'utf-16le', 'utf-16be']:
+                                        try:
+                                            decoded = payload.decode(enc)
+                                            if not decoded.strip(): continue
+                                            printable = sum(1 for c in decoded if c.isprintable() or c in '\n\r\t')
+                                            ratio = printable / len(decoded)
+                                            candidates.append((ratio, decoded))
+                                        except: pass
+                                    if candidates:
+                                        candidates.sort(key=lambda x: x[0], reverse=True)
+                                        if candidates[0][0] > 0.8: text = candidates[0][1]
+                                elif isinstance(user_comment, str):
+                                    text = user_comment
                 except Exception: pass
                 
             if text:
                 self._display_parameters(text)
                 
         except Exception as e: 
-            # Non-fatal, just can't read meta
+            # Non-fatal
             print(f"Meta parse error: {e}")
 
     def _display_parameters(self, text):

@@ -181,3 +181,88 @@ def save_config(data: Dict[str, Any], config_path=CONFIG_FILE):
     except Exception as e:
         print(f"Failed to save config: {e}")
         raise e
+
+# ==========================================
+# Workflow Logic
+# ==========================================
+def validate_comfy_metadata(img):
+    """
+    Validates if the image contains workflow metadata and identifies source.
+    Returns:
+        "comfy": ComfyUI workflow (JSON in 'workflow', 'prompt', or Exif)
+        "webui": Automatic1111/WebUI parameters (in 'parameters')
+        None: No supported metadata found
+    """
+    try:
+        # 1. Check PNG standard keys
+        
+        # ComfyUI
+        if "workflow" in img.info:
+            try:
+                json.loads(img.info["workflow"])
+                return "comfy"
+            except: pass
+            
+        if "prompt" in img.info:
+            try:
+                json.loads(img.info["prompt"])
+                return "comfy"
+            except: pass
+
+        # A1111 / WebUI
+        # A1111 stores generation info in 'parameters' text chunk. Not JSON.
+        if "parameters" in img.info and isinstance(img.info["parameters"], str) and img.info["parameters"].strip():
+            return "webui"
+
+        # 2. Check Exif (UserComment)
+        if hasattr(img, "_getexif"):
+            exif_data = img._getexif()
+            if exif_data:
+                # 37510 = 0x9286 = UserComment
+                user_comment = exif_data.get(37510)
+                if user_comment:
+                    payload = user_comment
+                    # Strip header if present
+                    if isinstance(user_comment, bytes):
+                        if user_comment.startswith(b'UNICODE\0'):
+                            payload = user_comment[8:]
+                        elif user_comment.startswith(b'ASCII\0\0\0'):
+                            payload = user_comment[8:]
+                        
+                        # Try decoding
+                        candidates = []
+                        for enc in ['utf-8', 'utf-16le', 'utf-16be']:
+                            try:
+                                decoded = payload.decode(enc)
+                                if decoded.strip(): candidates.append(decoded)
+                            except: pass
+                        
+                        if candidates:
+                            for cand in candidates:
+                                s = cand.strip()
+                                # Check for ComfyUI JSON
+                                if s.startswith("{"):
+                                    try:
+                                        data = json.loads(s)
+                                        if isinstance(data, dict): return "comfy"
+                                    except: pass
+                                
+                                # Check for A1111 Parameters
+                                # Heuristic: contains "Steps:" and "Sampler:"
+                                if "Steps:" in s and "Sampler:" in s:
+                                    return "webui"
+                    
+                    elif isinstance(user_comment, str):
+                        s = user_comment.strip()
+                        if s.startswith("{"):
+                            try:
+                                data = json.loads(s)
+                                if isinstance(data, dict): return "comfy"
+                            except: pass
+                        if "Steps:" in s and "Sampler:" in s:
+                            return "webui"
+
+    except Exception as e:
+        pass
+        
+    return None
