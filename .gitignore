@@ -1,6 +1,7 @@
 # User requested ignores
 cache/
 **/__pycache__/
+src/managers/__pycache__/
 *.pyc
 manager_config.json
 

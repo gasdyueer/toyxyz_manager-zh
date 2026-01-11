@@ -129,7 +129,7 @@ def calculate_structure_path(model_path: str, cache_root: str, directories: Dict
             try:
                 rel_path = os.path.relpath(model_dir, root_abs)
                 if rel_path == ".": rel_path = ""
-            except: 
+            except ValueError: 
                 rel_path = ""
             break
             

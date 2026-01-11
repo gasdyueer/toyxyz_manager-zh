@@ -34,13 +34,8 @@ except ImportError:
     pass
 
 class ModelManagerWidget(BaseManagerWidget):
-    def __init__(self, directories, app_settings, parent_window=None):
-        self.app_settings = app_settings
-        self.parent_window = parent_window
-        self.current_model_path = None
-        self.selected_model_paths = []
-        self.download_queue = []
-        self.is_chain_processing = False
+    def __init__(self, directories, app_settings, task_monitor, parent_window=None):
+        self.task_monitor = task_monitor
         self.last_download_dir = None
         
         self.image_loader_thread = ImageLoader()
@@ -48,7 +43,10 @@ class ModelManagerWidget(BaseManagerWidget):
 
         # Filter directories for 'model' mode
         model_dirs = {k: v for k, v in directories.items() if v.get("mode", "model") == "model"}
-        super().__init__(model_dirs, SUPPORTED_EXTENSIONS["model"])
+        super().__init__(model_dirs, SUPPORTED_EXTENSIONS["model"], app_settings)
+        
+        self.download_queue = []
+        self.is_chain_processing = False
         
     def init_center_panel(self):
         self.info_labels = {}
@@ -100,12 +98,9 @@ class ModelManagerWidget(BaseManagerWidget):
         
         # Tab 2: Example
         self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread)
-        self.tab_example.status_message.connect(self.show_status)
+        self.tab_example.status_message.connect(self.show_status_message)
         self.tabs.addTab(self.tab_example, "Example")
         
-        # Tab 3: Tasks
-        self.task_monitor = TaskMonitorWidget()
-        self.tabs.addTab(self.task_monitor, "Tasks")
         
         self.right_layout.addWidget(self.tabs)
 
@@ -128,7 +123,7 @@ class ModelManagerWidget(BaseManagerWidget):
             path = current_item.data(0, Qt.UserRole)
             type_ = current_item.data(0, Qt.UserRole + 1)
             if type_ == "file" and path:
-                self.current_model_path = path
+                self.current_path = path
                 self._load_details(path)
 
     def _load_details(self, path):
@@ -142,7 +137,7 @@ class ModelManagerWidget(BaseManagerWidget):
             elif size_bytes >= 1024: size_str = f"{size_bytes / 1024:.2f} KB"
             else: size_str = f"{size_bytes} B"
             date_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(st.st_mtime))
-        except: size_str = "Unknown"; date_str = "Unknown"
+        except (OSError, ValueError): size_str = "Unknown"; date_str = "Unknown"
         self.info_labels["Name"].setText(filename)
         self.info_labels["Ext"].setText(ext)
         self.info_labels["Size"].setText(size_str)
@@ -163,24 +158,16 @@ class ModelManagerWidget(BaseManagerWidget):
             try:
                 with open(json_path, 'r', encoding='utf-8') as f:
                     note_content = json.load(f).get("user_note", "")
-            except: pass
+            except (OSError, json.JSONDecodeError): pass
         self.tab_note.set_text(note_content)
         self.tab_example.load_examples(path)
 
-    def get_cache_dir(self):
-        custom_path = self.app_settings.get("cache_path", "").strip()
-        if custom_path and os.path.isdir(custom_path):
-            return custom_path
-        from ..core import CACHE_DIR_NAME
-        if not os.path.exists(CACHE_DIR_NAME):
-            try: os.makedirs(CACHE_DIR_NAME)
-            except: pass
-        return CACHE_DIR_NAME
+
 
     def save_note(self, text):
-        if not self.current_model_path: return
+        if not self.current_path: return
         try:
-            base, ext = os.path.splitext(self.current_model_path)
+            base, ext = os.path.splitext(self.current_path)
             note_path = base + ".md"
             with open(note_path, "w", encoding="utf-8") as f:
                 f.write(text)
@@ -194,41 +181,24 @@ class ModelManagerWidget(BaseManagerWidget):
                     data["description"] = text
                     with open(json_path, "w", encoding="utf-8") as jf:
                         json.dump(data, jf, indent=4)
-                except: pass
+                except (OSError, json.JSONDecodeError): pass
                 
             if self.parent_window: self.parent_window.statusBar().showMessage("Note saved.", 2000)
         except Exception as e: 
             print(f"Save Error: {e}")
 
     def handle_media_insert(self, mtype):
-        if not self.current_model_path: 
+        if not self.current_path: 
             QMessageBox.warning(self, "Error", "No model selected.")
             return None
             
         if mtype not in ["image", "video"]: return None
         
-        filters = "Images (*.png *.jpg *.jpeg *.webp *.gif)" if mtype == "image" else "Videos (*.mp4 *.webm)"
+        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
         file_path, _ = QFileDialog.getOpenFileName(self, f"Select {mtype.title()}", "", filters)
         if not file_path: return None
         
-        cache_dir = calculate_structure_path(self.current_model_path, self.get_cache_dir(), self.directories)
-        if not os.path.exists(cache_dir): os.makedirs(cache_dir)
-        
-        name = os.path.basename(file_path)
-        dest_path = os.path.join(cache_dir, name)
-        
-        try:
-            shutil.copy2(file_path, dest_path)
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Failed to copy file to cache: {e}")
-            return None
-            
-        # Use absolute path for reliability in QTextBrowser
-        dest_path = dest_path.replace("\\", "/")
-        if mtype == "image":
-            return f"![{name}]({dest_path})"
-        else:
-            return f'<video src="{dest_path}" controls width="100%"></video>'
+        return self.copy_media_to_cache(file_path, self.current_path)
 
     def _save_json_direct(self, model_path, content):
         cache_dir = calculate_structure_path(model_path, self.get_cache_dir(), self.directories)
@@ -274,7 +244,7 @@ class ModelManagerWidget(BaseManagerWidget):
             cache_root=cache_dir,
             directories=self.directories
         )
-        self.worker.status_update.connect(self.show_status)
+        self.worker.status_update.connect(self.show_status_message)
         self.worker.batch_started.connect(lambda paths: self.task_monitor.add_tasks(paths, task_type="Auto Match"))
         self.worker.task_progress.connect(self.task_monitor.update_task)
         self.worker.model_processed.connect(self._on_model_processed)
@@ -287,13 +257,13 @@ class ModelManagerWidget(BaseManagerWidget):
         if success:
             desc = data.get("description", "")
             self._save_json_direct(model_path, desc)
-            if self.current_model_path == model_path:
+            if self.current_path == model_path:
                 self.tab_note.set_text(desc)
                 self.tab_example.load_examples(model_path)
                 QTimer.singleShot(200, lambda: self._load_details(model_path))
 
     def _on_worker_finished(self):
-        self.show_status("Batch Processed.")
+        self.show_status_message("Batch Processed.")
         if self.is_chain_processing:
             self.is_chain_processing = False
             self._process_download_queue()
@@ -343,7 +313,7 @@ class ModelManagerWidget(BaseManagerWidget):
             self.download_queue.append(task)
             self.task_monitor.add_row(url, "Download", detail_info, "Queued")
             self.tabs.setCurrentIndex(2) 
-            self.show_status(f"Added to queue: {os.path.basename(target_dir)}")
+            self.show_status_message(f"Added to queue: {os.path.basename(target_dir)}")
             self._process_download_queue()
 
     def _process_download_queue(self):
@@ -370,7 +340,7 @@ class ModelManagerWidget(BaseManagerWidget):
         self.dl_worker.name_found.connect(self.task_monitor.update_task_name)
         self.dl_worker.ask_collision.connect(self.handle_download_collision)
         
-        self.show_status(f"Starting download...")
+        self.show_status_message(f"Starting download...")
         self.dl_worker.start()
 
     def handle_download_collision(self, filename):
@@ -380,14 +350,14 @@ class ModelManagerWidget(BaseManagerWidget):
 
     def _on_download_progress(self, key, status, percent):
         self.task_monitor.update_task(key, status, percent)
-        self.show_status(f"Downloading... {percent}%")
+        self.show_status_message(f"Downloading... {percent}%")
 
     def _on_download_finished(self, msg, file_path):
-        self.show_status(msg)
+        self.show_status_message(msg)
         self.refresh_list() 
         chain_started = False
         if file_path and os.path.exists(file_path):
-            self.show_status(f"Auto-matching for: {os.path.basename(file_path)}...")
+            self.show_status_message(f"Auto-matching for: {os.path.basename(file_path)}...")
             if hasattr(self, 'worker') and self.worker.isRunning():
                  pass
             else:
@@ -399,7 +369,7 @@ class ModelManagerWidget(BaseManagerWidget):
             self._process_download_queue()
 
     def _on_download_error(self, err_msg):
-        self.show_status(f"Download Error: {err_msg}")
+        self.show_status_message(f"Download Error: {err_msg}")
         QMessageBox.critical(self, "Download Failed", err_msg)
         self.is_chain_processing = False
         self._process_download_queue()
@@ -413,55 +383,9 @@ class ModelManagerWidget(BaseManagerWidget):
         # NOT USED HERE - handled by MainWindow
         pass
 
-    def replace_thumbnail(self):
-        if not self.current_model_path: return
-        
-        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select New Thumbnail/Preview", "", filters)
-        if not file_path: return
-        
-        base = os.path.splitext(self.current_model_path)[0]
-        ext = os.path.splitext(file_path)[1].lower()
-        target_path = base + ext
-
-        self.btn_replace.setEnabled(False)
-        # [Fix] Unload image to be safe against file locks
-        self.preview_lbl.set_media(None)
-        QApplication.processEvents() # Force UI update/release
-
-        self.show_status("Processing thumbnail...")
-        
-        is_video = (ext in VIDEO_EXTENSIONS)
-        self.thumb_worker = ThumbnailWorker(file_path, target_path, is_video)
-        self.thumb_worker.finished.connect(self._on_thumb_worker_finished)
-        self.thumb_worker.start()
-
-    def _on_thumb_worker_finished(self, success, msg):
-        self.btn_replace.setEnabled(True)
-        self.show_status(msg)
-        if success:
-             self._load_details(self.current_model_path)
-        else:
-             QMessageBox.warning(self, "Error", f"Failed: {msg}")
-
-    def on_preview_click(self):
-        path = self.preview_lbl.get_current_path()
-        if path and os.path.exists(path) and os.path.splitext(path)[1].lower() not in VIDEO_EXTENSIONS:
-            ZoomWindow(path, self).show()
 
 
 
-    def open_current_folder(self):
-        if self.current_model_path:
-            f = os.path.dirname(self.current_model_path)
-            try: os.startfile(f)
-            except: pass
-
-    def show_status(self, msg):
-        if self.parent_window:
-            self.parent_window.statusBar().showMessage(msg, 3000)
-        else:
-            print(msg)
 
     def closeEvent(self, event):
         if hasattr(self, 'image_loader_thread'):

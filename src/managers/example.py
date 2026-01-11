@@ -202,11 +202,22 @@ class ExampleTabWidget(QWidget):
         preview_dir = os.path.join(cache_dir, "preview")
         if not os.path.exists(preview_dir): os.makedirs(preview_dir)
         
+        last_added_name = None
         for f in files:
-            try: shutil.copy2(f, preview_dir)
-            except: pass
+            try: 
+                shutil.copy2(f, preview_dir)
+                last_added_name = os.path.basename(f)
+            except OSError: pass
             
         self.load_examples(self.current_item_path)
+        
+        # [UX Fix] Auto-select the last added file
+        if last_added_name and self.example_images:
+            for idx, path in enumerate(self.example_images):
+                if os.path.basename(path) == last_added_name:
+                    self.current_example_idx = idx
+                    self._update_ui()
+                    break
 
     def delete_example_image(self):
         if not self.example_images: return
@@ -418,5 +429,5 @@ class ExampleTabWidget(QWidget):
         from ..core import CACHE_DIR_NAME
         if not os.path.exists(CACHE_DIR_NAME):
             try: os.makedirs(CACHE_DIR_NAME)
-            except: pass
+            except OSError: pass
         return CACHE_DIR_NAME

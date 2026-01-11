@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 
 from .core import load_config, save_config, HAS_PILLOW
-from .ui_components import SettingsDialog
+from .ui_components import SettingsDialog, TaskMonitorWidget
 from .managers.model import ModelManagerWidget
 from .managers.workflow import WorkflowManagerWidget
 # from .managers.prompt import PromptManagerWidget # Future
@@ -55,15 +55,19 @@ class ModelManagerWindow(QMainWindow):
             QTabBar::tab { height: 30px; width: 100px; font-size: 12px; }
         """)
         
+        # Initialize Task Monitor (Global)
+        self.task_monitor = TaskMonitorWidget()
+
         # Initialize Managers
-        self.model_manager = ModelManagerWidget(self.directories, self.app_settings, self)
-        self.workflow_manager = WorkflowManagerWidget(self.directories, self.app_settings, self)
+        self.model_manager = ModelManagerWidget(self.directories, self.app_settings, self.task_monitor, self)
+        self.workflow_manager = WorkflowManagerWidget(self.directories, self.app_settings, self.task_monitor, self)
         # self.prompt_manager = PromptManagerWidget(self.directories, self.app_settings, self)
         self.prompt_manager = QWidget() # Placeholder
         
         self.mode_tabs.addTab(self.model_manager, "Model")
         self.mode_tabs.addTab(self.workflow_manager, "Workflow")
         self.mode_tabs.addTab(self.prompt_manager, "Prompt")
+        self.mode_tabs.addTab(self.task_monitor, "Tasks")
         
         layout.addWidget(self.mode_tabs)
         self.statusBar().showMessage("Ready")

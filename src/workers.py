@@ -28,8 +28,14 @@ from .core import (
 if HAS_MARKDOWNIFY:
     import markdownify
 
+#Fn: Utility
+def format_size(s):
+    p=2**10; n=0; l={0:'', 1:'K', 2:'M', 3:'G'}
+    while s > p: s/=p; n+=1
+    return f"{s:.2f} {l.get(n,'T')}B"
+
 # ==========================================
-# Image Loader
+# Region: Media Workers (Image, Thumbnail)
 # ==========================================
 class ImageLoader(QThread):
     image_loaded = Signal(str, QImage) 
@@ -126,7 +132,7 @@ class ThumbnailWorker(QThread):
             self.finished.emit(False, str(e))
 
 # ==========================================
-# File Scanner
+# Region: File System Workers
 # ==========================================
 class FileScannerWorker(QThread):
     finished = Signal(dict)
@@ -151,21 +157,17 @@ class FileScannerWorker(QThread):
                     full_path = os.path.join(root, f)
                     try:
                         st = os.stat(full_path)
-                        sz = self.format_size(st.st_size)
+                        sz = format_size(st.st_size)
                         dt = time.strftime('%Y-%m-%d', time.localtime(st.st_mtime))
-                    except: sz="?"; dt="-"
+                    except (OSError, ValueError): sz="?"; dt="-"
                     valid_files.append({"name": f, "path": full_path, "size": sz, "date": dt})
             if valid_files or dirs:
                  file_structure[root] = {"dirs": dirs, "files": valid_files}
         if self._is_running:
             self.finished.emit(file_structure)
-    def format_size(self, s):
-        p=2**10; n=0; l={0:'', 1:'K', 2:'M', 3:'G'}
-        while s > p: s/=p; n+=1
-        return f"{s:.2f} {l.get(n,'T')}B"
 
 # ==========================================
-# Metadata Worker
+# Region: Network & Metadata Workers
 # ==========================================
 class MetadataWorker(QThread):
     batch_started = Signal(list) 
@@ -388,7 +390,7 @@ class MetadataWorker(QThread):
                     cached_mtime = data.get("mtime_check")
                     if cached_hash and cached_mtime == file_mtime:
                         return cached_hash, True
-            except: pass
+            except (OSError, json.JSONDecodeError): pass
 
         self.status_update.emit("Calculating SHA256 (First run)...")
         calculated_hash = self._calculate_sha256(model_path)
@@ -397,7 +399,7 @@ class MetadataWorker(QThread):
             if os.path.exists(json_path):
                 try:
                     with open(json_path, 'r', encoding='utf-8') as f: new_data = json.load(f)
-                except: pass
+                except (OSError, json.JSONDecodeError): pass
             new_data["sha256"] = calculated_hash
             new_data["mtime_check"] = file_mtime
             with open(json_path, 'w', encoding='utf-8') as f:
@@ -422,7 +424,7 @@ class MetadataWorker(QThread):
             res = requests.get(readme_url, headers=headers, timeout=10)
             res.raise_for_status()
             readme_content = res.text
-        except: readme_content = "*No README.md found.*"
+        except requests.RequestException: readme_content = "*No README.md found.*"
         
         self.task_progress.emit(model_path, "Downloading...", 50)
         
@@ -527,7 +529,7 @@ class MetadataWorker(QThread):
                         return target_path
                         
                 try: return download_stream(original_url)
-                except: return download_stream(url) 
+                except requests.RequestException: return download_stream(url) 
             return local_path
         except Exception as e: return None
 
@@ -637,6 +639,14 @@ class ModelDownloadWorker(QThread):
             if not model_id:
                 raise Exception("Cannot parse Model ID from URL")
 
+            # [Fix] URL Validation
+            if not self.url.startswith("http"):
+                raise Exception("Invalid URL protocol. Must be http/https.")
+            if "civitai.com" not in self.url and "huggingface.co" not in self.url:
+                # Soft check, or maybe just allowed? The parsing logic above requires civitai specific structure 'models/(\d+)'
+                # so it effectively enforces Civitai structure for the first part of logic.
+                pass 
+
             headers = {'User-Agent': 'ComfyUI-Manager-QT'}
             if self.api_key: headers['Authorization'] = f'Bearer {self.api_key}'
 
@@ -728,7 +738,7 @@ class ModelDownloadWorker(QThread):
                         if not self._is_running:
                             f.close()
                             try: os.remove(final_path)
-                            except: pass
+                            except OSError: pass
                             self.finished.emit("Download Cancelled", "")
                             return
                         if chunk:

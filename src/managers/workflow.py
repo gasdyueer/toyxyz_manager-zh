@@ -26,17 +26,14 @@ except ImportError:
     pass
 
 class WorkflowManagerWidget(BaseManagerWidget):
-    def __init__(self, directories, app_settings, parent_window=None):
-        self.app_settings = app_settings
-        self.parent_window = parent_window
-        self.current_wf_path = None
-        
+    def __init__(self, directories, app_settings, task_monitor, parent_window=None):
+        self.task_monitor = task_monitor
         self.image_loader_thread = ImageLoader()
         self.image_loader_thread.start()
         
         # Filter directories for 'workflow' mode
         wf_dirs = {k: v for k, v in directories.items() if v.get("mode") == "workflow"}
-        super().__init__(wf_dirs, SUPPORTED_EXTENSIONS["workflow"])
+        super().__init__(wf_dirs, SUPPORTED_EXTENSIONS["workflow"], app_settings)
 
     def init_center_panel(self):
         self.info_labels = {}
@@ -65,42 +62,9 @@ class WorkflowManagerWidget(BaseManagerWidget):
         center_btn_layout.addWidget(btn_open)
         self.center_layout.addLayout(center_btn_layout)
 
-    def replace_thumbnail(self):
-        if not self.current_wf_path: return
-        
-        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select New Thumbnail/Preview", "", filters)
-        if not file_path: return
-        
-        base = os.path.splitext(self.current_wf_path)[0]
-        ext = os.path.splitext(file_path)[1].lower()
-        target_path = base + ext
 
-        self.btn_replace.setEnabled(False)
-        self.show_status("Processing thumbnail...")
-        
-        # [Fix] Unload image to be safe against file locks
-        self.preview_lbl.set_media(None)
-        QApplication.processEvents()
 
-        is_video = (ext in VIDEO_EXTENSIONS)
-        self.thumb_worker = ThumbnailWorker(file_path, target_path, is_video)
-        self.thumb_worker.finished.connect(self._on_thumb_worker_finished)
-        self.thumb_worker.start()
 
-    def _on_thumb_worker_finished(self, success, msg):
-        self.btn_replace.setEnabled(True)
-        self.show_status(msg)
-        if success:
-             self._load_details(self.current_wf_path)
-        else:
-             QMessageBox.warning(self, "Error", f"Failed: {msg}")
-
-    def show_status(self, msg):
-        if self.parent_window:
-            self.parent_window.statusBar().showMessage(msg, 3000)
-        else:
-            print(msg)
 
     def init_right_panel(self):
         self.tabs = QTabWidget()
@@ -114,7 +78,7 @@ class WorkflowManagerWidget(BaseManagerWidget):
         
         # Tab 2: Example
         self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread)
-        self.tab_example.status_message.connect(self.show_status)
+        self.tab_example.status_message.connect(self.show_status_message)
         self.tabs.addTab(self.tab_example, "Example")
         
         # Tab 3: Raw JSON
@@ -134,7 +98,7 @@ class WorkflowManagerWidget(BaseManagerWidget):
         type_ = item.data(0, Qt.UserRole + 1)
         
         if type_ == "file" and path:
-            self.current_wf_path = path
+            self.current_path = path
             self._load_details(path)
             # Pass the JSON path to the draggable widget so it knows what to drag
             self.preview_lbl.set_json_path(path)
@@ -146,7 +110,7 @@ class WorkflowManagerWidget(BaseManagerWidget):
             size_str = f"{st.st_size} B"
             if st.st_size > 1024: size_str = f"{st.st_size/1024:.2f} KB"
             date_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(st.st_mtime))
-        except: size_str="?"; date_str="?"
+        except (OSError, ValueError): size_str="?"; date_str="?"
         
         self.info_labels["Name"].setText(filename)
         self.info_labels["Size"].setText(size_str)
@@ -183,26 +147,18 @@ class WorkflowManagerWidget(BaseManagerWidget):
             try:
                 with open(json_desc_path, 'r', encoding='utf-8') as f:
                     note_content = json.load(f).get("user_note", "")
-            except: pass
+            except (OSError, json.JSONDecodeError): pass
         self.tab_note.set_text(note_content)
         self.tab_example.load_examples(path)
 
-    def get_cache_dir(self):
-        custom_path = self.app_settings.get("cache_path", "").strip()
-        if custom_path and os.path.isdir(custom_path):
-            return custom_path
-        from ..core import CACHE_DIR_NAME
-        if not os.path.exists(CACHE_DIR_NAME):
-            try: os.makedirs(CACHE_DIR_NAME)
-            except: pass
-        return CACHE_DIR_NAME
+
 
     def save_note(self, text):
-        if not self.current_wf_path: return
+        if not self.current_path: return
         
-        cache_dir = calculate_structure_path(self.current_wf_path, self.get_cache_dir(), self.directories)
+        cache_dir = calculate_structure_path(self.current_path, self.get_cache_dir(), self.directories)
         if not os.path.exists(cache_dir): os.makedirs(cache_dir)
-        model_name = os.path.splitext(os.path.basename(self.current_wf_path))[0]
+        model_name = os.path.splitext(os.path.basename(self.current_path))[0]
         json_desc_path = os.path.join(cache_dir, model_name + ".desc.json")
         
         try:
@@ -215,45 +171,19 @@ class WorkflowManagerWidget(BaseManagerWidget):
             print(f"Save Error: {e}")
 
     def handle_media_insert(self, mtype):
-        if not self.current_wf_path: 
+        if not self.current_path: 
             QMessageBox.warning(self, "Error", "No workflow selected.")
             return None
             
         if mtype not in ["image", "video"]: return None
         
-        filters = "Images (*.png *.jpg *.jpeg *.webp *.gif)" if mtype == "image" else "Videos (*.mp4 *.webm)"
+        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
         file_path, _ = QFileDialog.getOpenFileName(self, f"Select {mtype.title()}", "", filters)
         if not file_path: return None
         
-        cache_dir = calculate_structure_path(self.current_wf_path, self.get_cache_dir(), self.directories)
-        if not os.path.exists(cache_dir): os.makedirs(cache_dir)
-        
-        name = os.path.basename(file_path)
-        dest_path = os.path.join(cache_dir, name)
-        
-        try:
-            shutil.copy2(file_path, dest_path)
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Failed to copy file to cache: {e}")
-            return None
-            
-        # Use absolute path for reliability
-        dest_path = dest_path.replace("\\", "/")
-        if mtype == "image":
-            return f"![{name}]({dest_path})"
-        else:
-            return f'<video src="{dest_path}" controls width="100%"></video>'
+        return self.copy_media_to_cache(file_path, self.current_path)
 
-    def on_preview_click(self):
-        path = self.preview_lbl.get_current_path()
-        if path and os.path.exists(path) and os.path.splitext(path)[1].lower() not in VIDEO_EXTENSIONS:
-            ZoomWindow(path, self).show()
 
-    def open_current_folder(self):
-        if self.current_wf_path:
-            f = os.path.dirname(self.current_wf_path)
-            try: os.startfile(f)
-            except: pass
             
     def closeEvent(self, event):
         if hasattr(self, 'image_loader_thread'): 

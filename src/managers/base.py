@@ -3,17 +3,21 @@ from typing import Dict, Any
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem, 
-    QLabel, QPushButton, QComboBox, QLineEdit, QMessageBox, QAbstractItemView
+    QLabel, QPushButton, QComboBox, QLineEdit, QMessageBox, QAbstractItemView,
+    QFileDialog, QApplication
 )
 from PySide6.QtCore import Qt
 
-from ..workers import FileScannerWorker
+from ..workers import FileScannerWorker, ThumbnailWorker
+from ..ui_components import ZoomWindow
+from ..core import VIDEO_EXTENSIONS
 
 class BaseManagerWidget(QWidget):
-    def __init__(self, directories: Dict[str, Any], extensions):
+    def __init__(self, directories: Dict[str, Any], extensions, app_settings: Dict[str, Any] = None):
         super().__init__()
         self.directories = directories
         self.extensions = extensions
+        self.app_settings = app_settings or {}
         self.current_path = None
         self._init_base_ui()
         self.update_combo_list()
@@ -191,3 +195,109 @@ class BaseManagerWidget(QWidget):
                     folder_item.setExpanded(True)
                 else:
                     folder_item.setHidden(True)
+
+    def show_status_message(self, msg, duration=3000):
+        if hasattr(self, 'parent_window') and self.parent_window:
+            self.parent_window.statusBar().showMessage(msg, duration)
+        else:
+            print(f"[Status] {msg}")
+
+    def get_cache_dir(self):
+        # Allow app_settings to define cache path, or fallback to default
+        custom_path = ""
+        if hasattr(self, 'app_settings'):
+            custom_path = self.app_settings.get("cache_path", "").strip()
+        
+        if custom_path and os.path.isdir(custom_path):
+            return custom_path
+            
+        from ..core import CACHE_DIR_NAME
+        if not os.path.exists(CACHE_DIR_NAME):
+            try: os.makedirs(CACHE_DIR_NAME)
+            except OSError: pass
+        return CACHE_DIR_NAME
+
+    def replace_thumbnail(self):
+        if not self.current_path: return
+        
+        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select New Thumbnail/Preview", "", filters)
+        if not file_path: return
+        
+        base = os.path.splitext(self.current_path)[0]
+        ext = os.path.splitext(file_path)[1].lower()
+        target_path = base + ext
+        
+        if hasattr(self, 'btn_replace'): self.btn_replace.setEnabled(False)
+        
+        # Unload image to be safe against file locks
+        if hasattr(self, 'preview_lbl'): self.preview_lbl.set_media(None)
+        QApplication.processEvents()
+
+        self.show_status_message("Processing thumbnail...")
+
+        # [Fix] Remove existing preview files to ensure the new one takes precedence
+        # (e.g., .mp4 takes priority over .jpg, so we must remove .mp4 if replacing with .jpg)
+        from ..core import PREVIEW_EXTENSIONS
+        try:
+            for p_ext in PREVIEW_EXTENSIONS:
+                p_path = base + p_ext
+                if os.path.exists(p_path) and os.path.abspath(p_path) != os.path.abspath(target_path):
+                    try: os.remove(p_path)
+                    except OSError: pass
+        except Exception as e:
+            print(f"Cleanup error: {e}")
+        
+        is_video = (ext in VIDEO_EXTENSIONS)
+        self.thumb_worker = ThumbnailWorker(file_path, target_path, is_video)
+        self.thumb_worker.finished.connect(self._on_thumb_worker_finished)
+        self.thumb_worker.start()
+
+    def _on_thumb_worker_finished(self, success, msg):
+        if hasattr(self, 'btn_replace'): self.btn_replace.setEnabled(True)
+        self.show_status_message(msg)
+        if success:
+             # Refresh details - assumes subclasses implement _load_details
+             if hasattr(self, '_load_details'): self._load_details(self.current_path)
+        else:
+             QMessageBox.warning(self, "Error", f"Failed: {msg}")
+
+    def on_preview_click(self):
+        if not hasattr(self, 'preview_lbl'): return
+        path = self.preview_lbl.get_current_path()
+        if path and os.path.exists(path) and os.path.splitext(path)[1].lower() not in VIDEO_EXTENSIONS:
+            ZoomWindow(path, self).show()
+
+    def open_current_folder(self):
+        if self.current_path:
+            f = os.path.dirname(self.current_path)
+            try: os.startfile(f)
+            except OSError: pass
+
+    # Re-implementing helper methods to be used by subclasses
+    
+    def copy_media_to_cache(self, file_path, target_relative_path):
+        import shutil
+        from ..core import calculate_structure_path
+        
+        if not target_relative_path: return None
+        
+        cache_dir = calculate_structure_path(target_relative_path, self.get_cache_dir(), self.directories)
+        if not os.path.exists(cache_dir): os.makedirs(cache_dir)
+        
+        name = os.path.basename(file_path)
+        dest_path = os.path.join(cache_dir, name)
+        
+        try:
+            shutil.copy2(file_path, dest_path)
+            # Return Markdown/HTML snippet
+            dest_path_fwd = dest_path.replace("\\", "/")
+            ext = os.path.splitext(name)[1].lower()
+            if ext in ['.mp4', '.webm', '.mkv']:
+                return f'<video src="{dest_path_fwd}" controls width="100%"></video>'
+            else:
+                return f"![{name}]({dest_path_fwd})"
+        except Exception as e:
+            self.show_status_message(f"Failed to copy media: {e}")
+            return None
+
