@@ -28,12 +28,20 @@ except ImportError:
 class WorkflowManagerWidget(BaseManagerWidget):
     def __init__(self, directories, app_settings, task_monitor, parent_window=None):
         self.task_monitor = task_monitor
+        self.parent_window = parent_window
         self.image_loader_thread = ImageLoader()
         self.image_loader_thread.start()
         
         # Filter directories for 'workflow' mode
         wf_dirs = {k: v for k, v in directories.items() if v.get("mode") == "workflow"}
         super().__init__(wf_dirs, SUPPORTED_EXTENSIONS["workflow"], app_settings)
+
+    def set_directories(self, directories):
+        # Filter directories for 'workflow' mode
+        wf_dirs = {k: v for k, v in directories.items() if v.get("mode") == "workflow"}
+        super().set_directories(wf_dirs)
+        if hasattr(self, 'tab_example'):
+            self.tab_example.directories = directories
 
     def init_center_panel(self):
         self.info_labels = {}
@@ -54,10 +62,12 @@ class WorkflowManagerWidget(BaseManagerWidget):
         # Buttons
         center_btn_layout = QHBoxLayout()
         self.btn_replace = QPushButton("🖼️ Change Thumb")
+        self.btn_replace.setToolTip("Change the thumbnail image for the selected workflow")
         self.btn_replace.clicked.connect(self.replace_thumbnail)
         center_btn_layout.addWidget(self.btn_replace)
         
         btn_open = QPushButton("📂 Open Folder")
+        btn_open.setToolTip("Open the containing folder in File Explorer")
         btn_open.clicked.connect(self.open_current_folder)
         center_btn_layout.addWidget(btn_open)
         self.center_layout.addLayout(center_btn_layout)

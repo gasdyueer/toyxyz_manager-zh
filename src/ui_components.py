@@ -308,6 +308,7 @@ class TaskMonitorWidget(QWidget):
         
         # [수정] 버튼 스타일 개선 (글자색 흰색)
         self.btn_clear = QPushButton("Clear Done")
+        self.btn_clear.setToolTip("Remove completed tasks from the list")
         self.btn_clear.clicked.connect(self.clear_finished_tasks) 
         self.btn_clear.setFixedWidth(80)
         self.btn_clear.setFixedHeight(22)
@@ -489,6 +490,7 @@ class FolderDialog(QDialog):
         path_box = QHBoxLayout()
         path_box.addWidget(self.edit_path)
         btn_browse = QPushButton("📂")
+        btn_browse.setToolTip("Browse Folder")
         btn_browse.clicked.connect(self.browse)
         path_box.addWidget(btn_browse)
         form.addRow("Path:", path_box)
@@ -535,6 +537,7 @@ class SettingsDialog(QDialog):
         self.entry_cache = QLineEdit(self.settings.get("cache_path", ""))
         self.entry_cache.setPlaceholderText("Default: ./cache (Leave empty for default)")
         btn_browse_cache = QPushButton("📂")
+        btn_browse_cache.setToolTip("Browse Cache Folder")
         btn_browse_cache.setFixedWidth(40)
         btn_browse_cache.clicked.connect(self.browse_cache_folder)
         cache_layout = QHBoxLayout()
@@ -559,8 +562,11 @@ class SettingsDialog(QDialog):
         
         btn_layout = QHBoxLayout()
         self.btn_add = QPushButton("➕ Add Folder")
+        self.btn_add.setToolTip("Register a new folder to manage")
         self.btn_edit = QPushButton("✏️ Edit Selected")
+        self.btn_edit.setToolTip("Edit the path or mode of the selected folder")
         self.btn_del = QPushButton("➖ Remove Selected")
+        self.btn_del.setToolTip("Unregister the selected folder")
         self.btn_add.clicked.connect(self.add_folder)
         self.btn_edit.clicked.connect(self.edit_folder)
         self.btn_del.clicked.connect(self.remove_folder)
@@ -574,6 +580,7 @@ class SettingsDialog(QDialog):
         # Bottom Buttons
         action_layout = QHBoxLayout()
         self.btn_save = QPushButton("💾 Save & Close")
+        self.btn_save.setToolTip("Save changes and close settings")
         self.btn_save.clicked.connect(self.accept)
         action_layout.addStretch()
         action_layout.addWidget(self.btn_save)
@@ -675,6 +682,7 @@ class MarkdownNoteWidget(QWidget):
         
         top_bar = QHBoxLayout()
         self.btn_edit = QPushButton("✏️ Edit")
+        self.btn_edit.setToolTip("Edit Note")
         self.btn_edit.clicked.connect(self.switch_to_edit)
         top_bar.addStretch()
         top_bar.addWidget(self.btn_edit)
@@ -707,8 +715,10 @@ class MarkdownNoteWidget(QWidget):
         toolbar.addStretch()
         
         self.btn_save = QPushButton("💾 Save")
+        self.btn_save.setToolTip("Save Note")
         self.btn_save.clicked.connect(self.request_save)
         self.btn_cancel = QPushButton("❌ Cancel")
+        self.btn_cancel.setToolTip("Cancel Editing")
         self.btn_cancel.clicked.connect(self.switch_to_view)
         
         toolbar.addWidget(self.btn_save)

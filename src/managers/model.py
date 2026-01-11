@@ -36,6 +36,7 @@ except ImportError:
 class ModelManagerWidget(BaseManagerWidget):
     def __init__(self, directories, app_settings, task_monitor, parent_window=None):
         self.task_monitor = task_monitor
+        self.parent_window = parent_window
         self.last_download_dir = None
         
         self.image_loader_thread = ImageLoader()
@@ -48,6 +49,15 @@ class ModelManagerWidget(BaseManagerWidget):
         self.download_queue = []
         self.is_chain_processing = False
         
+    def set_directories(self, directories):
+        # Filter directories for 'model' mode
+        model_dirs = {k: v for k, v in directories.items() if v.get("mode", "model") == "model"}
+        super().set_directories(model_dirs)
+        if hasattr(self, 'tab_example'):
+            self.tab_example.directories = directories
+        if hasattr(self, 'worker'):
+            self.worker.directories = directories
+
     def init_center_panel(self):
         self.info_labels = {}
         form_layout = QFormLayout()
@@ -65,8 +75,10 @@ class ModelManagerWidget(BaseManagerWidget):
         
         center_btn_layout = QHBoxLayout()
         self.btn_replace = QPushButton("🖼️ Change Thumb")
+        self.btn_replace.setToolTip("Change the thumbnail image for the selected model")
         self.btn_replace.clicked.connect(self.replace_thumbnail)
         btn_open = QPushButton("📂 Open Folder")
+        btn_open.setToolTip("Open the containing folder in File Explorer")
         btn_open.clicked.connect(self.open_current_folder)
         center_btn_layout.addWidget(self.btn_replace)
         center_btn_layout.addWidget(btn_open)
@@ -75,8 +87,11 @@ class ModelManagerWidget(BaseManagerWidget):
     def init_right_panel(self):
         meta_btns = QGridLayout()
         btn_auto = QPushButton("⚡ Auto Match")
+        btn_auto.setToolTip("Automatically search Civitai for metadata by file hash")
         btn_manual = QPushButton("🔗 Manual URL")
+        btn_manual.setToolTip("Manually enter a Civitai/HuggingFace URL to fetch metadata")
         btn_download = QPushButton("⬇️ Download Model")
+        btn_download.setToolTip("Download a new model from a URL")
         
         btn_auto.clicked.connect(lambda: self.run_civitai("auto"))
         btn_manual.clicked.connect(lambda: self.run_civitai("manual"))

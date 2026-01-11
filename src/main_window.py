@@ -42,6 +42,7 @@ class ModelManagerWindow(QMainWindow):
         title = QLabel("🤖 toyxyz manager")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         btn_settings = QPushButton("⚙️ Settings")
+        btn_settings.setToolTip("Open Application Settings")
         btn_settings.clicked.connect(self.open_settings)
         header.addWidget(title)
         header.addStretch()
@@ -86,19 +87,13 @@ class ModelManagerWindow(QMainWindow):
         dlg = SettingsDialog(self, self.app_settings, self.directories)
         if dlg.exec():
             new_data = dlg.get_data()
-            # new_data contains '__settings__' which is self.app_settings itself, causing circular ref if we update.
-            # self.app_settings is already modified in-place by SettingsDialog.
+            # new_data contains '__settings__' which is self.app_settings itself
             self.directories = new_data["directories"]
             self.save_config_data()
             
-            # Refresh all managers
-            # We need to re-filter directories for each manager because they might have changed modes or been added/removed
-            # For simplicity, we can just re-initialize the combo list in them
-            self.model_manager.directories = {k: v for k, v in self.directories.items() if v.get("mode", "model") == "model"}
-            self.model_manager.update_combo_list()
-            
-            self.workflow_manager.directories = {k: v for k, v in self.directories.items() if v.get("mode") == "workflow"}
-            self.workflow_manager.update_combo_list()
+            # Refresh all managers using the new method
+            self.model_manager.set_directories(self.directories)
+            self.workflow_manager.set_directories(self.directories)
             
     def closeEvent(self, event):
         # Propagate close to managers to stop threads

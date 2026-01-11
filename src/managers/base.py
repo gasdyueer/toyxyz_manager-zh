@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from ..workers import FileScannerWorker, ThumbnailWorker
+from ..workers import FileScannerWorker, ThumbnailWorker, FileSearchWorker
 from ..ui_components import ZoomWindow
 from ..core import VIDEO_EXTENSIONS
 
@@ -19,6 +19,7 @@ class BaseManagerWidget(QWidget):
         self.extensions = extensions
         self.app_settings = app_settings or {}
         self.current_path = None
+        self.active_scanners = []
         self._init_base_ui()
         self.update_combo_list()
 
@@ -43,13 +44,23 @@ class BaseManagerWidget(QWidget):
         self.folder_combo = QComboBox()
         self.folder_combo.currentIndexChanged.connect(self.refresh_list)
         btn_refresh = QPushButton("🔄")
+        btn_refresh.setToolTip("Refresh file list")
         btn_refresh.clicked.connect(self.refresh_list)
         combo_box.addWidget(self.folder_combo, 1)
         combo_box.addWidget(btn_refresh)
         
+        # [Search UI]
+        search_layout = QHBoxLayout()
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("🔍 Filter...")
-        self.filter_edit.textChanged.connect(self.filter_list)
+        self.filter_edit.setPlaceholderText("🔍 Search... (Enter)")
+        self.filter_edit.returnPressed.connect(self.search_files)
+        
+        self.btn_search = QPushButton("Search")
+        self.btn_search.setToolTip("Search files in the current directory (Recursive)")
+        self.btn_search.clicked.connect(self.search_files)
+        
+        search_layout.addWidget(self.filter_edit)
+        search_layout.addWidget(self.btn_search)
         
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Name", "Size", "Date", "Format"])
@@ -69,9 +80,10 @@ class BaseManagerWidget(QWidget):
         """)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self.on_tree_select)
+        self.tree.itemExpanded.connect(self.on_tree_expand)
         
         left_layout.addLayout(combo_box)
-        left_layout.addWidget(self.filter_edit)
+        left_layout.addLayout(search_layout)
         left_layout.addWidget(self.tree)
         self.splitter.addWidget(left_panel)
         
@@ -96,6 +108,11 @@ class BaseManagerWidget(QWidget):
     def init_right_panel(self): pass
     def on_tree_select(self): pass
 
+    def set_directories(self, directories):
+        """Updates the directories and refreshes the combo box."""
+        self.directories = directories
+        self.update_combo_list()
+
     def update_combo_list(self):
         self.folder_combo.blockSignals(True)
         self.folder_combo.clear()
@@ -113,15 +130,17 @@ class BaseManagerWidget(QWidget):
         data = self.directories.get(name)
         if not data: return
         
-        path = data.get("path") if isinstance(data, dict) else data
+        raw_path = data.get("path") if isinstance(data, dict) else data
+        # [Fix] Normalize path here to ensure consistency with worker and popup logic
+        path = os.path.normpath(raw_path)
         
         if hasattr(self, 'scanner') and self.scanner.isRunning():
             self.scanner.stop()
-            # Wait or just ignore, standard is to wait but we want responsiveness
             
         self.tree.clear()
         self.filter_edit.clear()
-        self.scanner = FileScannerWorker(path, self.extensions)
+        # Initial scan is non-recursive (Lazy Load)
+        self.scanner = FileScannerWorker(path, self.extensions, recursive=False)
         self.scanner.finished.connect(self._on_scan_finished)
         self.scanner.start()
 
@@ -129,72 +148,154 @@ class BaseManagerWidget(QWidget):
         if not structure and not hasattr(self, 'scanner'): return
         self.tree.setUpdatesEnabled(False)
         
+        # Re-resolve path to ensure we use the same key
         name = self.folder_combo.currentText()
         data = self.directories.get(name)
-        base_path = data.get("path") if isinstance(data, dict) else data
-        if not base_path: return
-        base_path = os.path.normpath(base_path)
+        raw_path = data.get("path") if isinstance(data, dict) else data
+        if not raw_path: return
+        base_path = os.path.normpath(raw_path)
+
+        # Retrieve root data - structure keys usually match the path passed to worker
+        # but to be safe against trailing slashes differences, we can check directly or normalized
+        root_data = structure.get(base_path)
         
-        item_map = {base_path: self.tree.invisibleRootItem()}
-        sorted_paths = sorted(structure.keys(), key=lambda x: len(x.split(os.sep)))
+        # Fallback: if not found by strict key, try to find a key that is equivalent
+        if not root_data:
+            for k, v in structure.items():
+                if os.path.normpath(k) == base_path:
+                    root_data = v
+                    break
         
-        for root in sorted_paths:
-            norm_root = os.path.normpath(root)
-            if norm_root == base_path:
-                item_map[norm_root] = self.tree.invisibleRootItem()
-            else:
-                parent_dir = os.path.dirname(norm_root)
-                parent_item = item_map.get(parent_dir)
-                if not parent_item: parent_item = self.tree.invisibleRootItem()
-                folder_name = os.path.basename(norm_root)
-                current_item = QTreeWidgetItem(parent_item)
-                current_item.setText(0, f"📁 {folder_name}")
-                current_item.setData(0, Qt.UserRole, norm_root)
-                current_item.setData(0, Qt.UserRole + 1, "folder")
-                item_map[norm_root] = current_item
-                
-        for root in sorted_paths:
-            norm_root = os.path.normpath(root)
-            current_item = item_map.get(norm_root)
-            if not current_item: continue
-            files = structure[root].get("files", [])
-            for f in files:
-                f_item = QTreeWidgetItem(current_item)
-                f_item.setText(0, f['name'])
-                f_item.setText(1, f['size'])
-                f_item.setText(2, f['date'])
-                ext = os.path.splitext(f['name'])[1].lower()
-                f_item.setText(3, ext)
-                f_item.setData(0, Qt.UserRole, f['path'])
-                f_item.setData(0, Qt.UserRole + 1, "file")
-        
+        if root_data:
+            self._populate_item(self.tree.invisibleRootItem(), base_path, root_data)
+
         self.tree.setUpdatesEnabled(True)
 
-    def filter_list(self, text):
-        text = text.lower()
-        root = self.tree.invisibleRootItem()
-        child_count = root.childCount()
-        for i in range(child_count):
-            folder_item = root.child(i)
-            folder_has_visible_child = False
-            for j in range(folder_item.childCount()):
-                file_item = folder_item.child(j)
-                file_name = file_item.text(0).lower()
-                if text in file_name:
-                    file_item.setHidden(False)
-                    folder_has_visible_child = True
-                else:
-                    file_item.setHidden(True)
-            if not text:
-                folder_item.setHidden(False)
-                folder_item.setExpanded(False)
-                for j in range(folder_item.childCount()): folder_item.child(j).setHidden(False)
-            else:
-                if folder_has_visible_child:
-                    folder_item.setHidden(False)
-                    folder_item.setExpanded(True)
-                else:
-                    folder_item.setHidden(True)
+    def _populate_item(self, parent_item, current_path, data):
+        # 1. Add Folders
+        dirs = data.get("dirs", [])
+        # Sort folders by name
+        dirs.sort(key=lambda s: s.lower())
+        
+        for d_name in dirs:
+            d_path = os.path.join(current_path, d_name)
+            d_item = QTreeWidgetItem(parent_item)
+            d_item.setText(0, f"📁 {d_name}")
+            d_item.setData(0, Qt.UserRole, d_path)
+            d_item.setData(0, Qt.UserRole + 1, "folder")
+            
+            # Add Dummy Item to enable expansion
+            dummy = QTreeWidgetItem(d_item)
+            dummy.setText(0, "Loading...")
+            dummy.setData(0, Qt.UserRole, "DUMMY")
+
+        # 2. Add Files
+        files = data.get("files", [])
+        # Files are already sorted or we can sort here
+        files.sort(key=lambda x: x['name'].lower())
+        
+        for f in files:
+            f_item = QTreeWidgetItem(parent_item)
+            f_item.setText(0, f['name'])
+            f_item.setText(1, f['size'])
+            f_item.setText(2, f['date'])
+            ext = os.path.splitext(f['name'])[1].lower()
+            f_item.setText(3, ext)
+            f_item.setData(0, Qt.UserRole, f['path'])
+            f_item.setData(0, Qt.UserRole + 1, "file")
+
+    def on_tree_expand(self, item):
+        # Check if it has a dummy child
+        if item.childCount() == 1 and item.child(0).data(0, Qt.UserRole) == "DUMMY":
+            # Remove dummy
+            item.takeChild(0)
+            
+            path = item.data(0, Qt.UserRole)
+            if not path or not os.path.isdir(path): return
+            
+            worker = FileScannerWorker(path, self.extensions, recursive=False)
+            worker.finished.connect(lambda s: self._on_partial_scan_finished(s, item, worker))
+            self.active_scanners.append(worker)
+            worker.start()
+
+    def _on_partial_scan_finished(self, structure, parent_item, worker):
+        if worker in self.active_scanners:
+             self.active_scanners.remove(worker)
+        
+        path = parent_item.data(0, Qt.UserRole)
+        # Normalize just in case
+        path = os.path.normpath(path)
+        
+        # structure keys might be subtly different (os.scandir path sep), so check carefully
+        # But usually key is exactly what we passed
+        root_data = structure.get(path)
+        
+        self.tree.setUpdatesEnabled(False)
+        if root_data:
+            self._populate_item(parent_item, path, root_data)
+        else:
+            # Empty folder or error, maybe add (Empty) label?
+            # For now just leave empty
+            pass
+        self.tree.setUpdatesEnabled(True)
+
+    def search_files(self):
+        query = self.filter_edit.text().strip()
+        if not query:
+            self.refresh_list()
+            return
+
+        name = self.folder_combo.currentText()
+        if not name: return
+        data = self.directories.get(name)
+        
+        raw_path = data.get("path") if isinstance(data, dict) else data
+        root_path = os.path.normpath(raw_path)
+
+        if hasattr(self, 'scanner') and self.scanner.isRunning(): self.scanner.stop()
+        if hasattr(self, 'search_worker') and self.search_worker.isRunning(): self.search_worker.stop()
+
+        self.tree.clear()
+        
+        # Loading Indicator
+        loading = QTreeWidgetItem(self.tree)
+        loading.setText(0, "Searching...")
+        
+        self.filter_edit.setEnabled(False)
+        self.btn_search.setEnabled(False)
+        
+        self.search_worker = FileSearchWorker(root_path, query, self.extensions)
+        self.search_worker.finished.connect(self._on_search_finished)
+        self.search_worker.start()
+
+    def _on_search_finished(self, results):
+        self.filter_edit.setEnabled(True)
+        self.btn_search.setEnabled(True)
+        self.tree.clear()
+        
+        if not results:
+            item = QTreeWidgetItem(self.tree)
+            item.setText(0, "No results found.")
+            return
+            
+        # Sort by name
+        results.sort(key=lambda x: os.path.basename(x[0]).lower())
+        
+        for path, type_ in results:
+            name = os.path.basename(path)
+            item = QTreeWidgetItem(self.tree)
+            item.setText(0, name)
+            item.setToolTip(0, path) # Show full path in tooltip
+            
+            # Simple metadata (can't afford full stat for all results easily, maybe later)
+            item.setText(1, "-") 
+            item.setText(2, "-")
+            
+            ext = os.path.splitext(name)[1].lower()
+            item.setText(3, ext)
+            
+            item.setData(0, Qt.UserRole, path)
+            item.setData(0, Qt.UserRole + 1, "file")
 
     def show_status_message(self, msg, duration=3000):
         if hasattr(self, 'parent_window') and self.parent_window:

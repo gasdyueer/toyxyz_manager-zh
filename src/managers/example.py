@@ -194,7 +194,7 @@ class ExampleTabWidget(QWidget):
     def add_example_image(self):
         if not self.current_item_path: return
         
-        filters = "Media (*.png *.jpg *.webp *.mp4 *.webm *.gif)"
+        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
         files, _ = QFileDialog.getOpenFileNames(self, "Select Files", "", filters)
         if not files: return
         
@@ -366,8 +366,48 @@ class ExampleTabWidget(QWidget):
             
             text = info.get("parameters", "")
             if not text and fmt in ["JPEG", "WEBP"]:
-                # EXIF check if needed (skipped for now as it's complex without open img, but usually not needed for webui meta)
-                pass 
+                # Try to read Exif UserComment
+                # Try to read Exif UserComment
+                try:
+                    exif_data = img._getexif()
+                    if exif_data:
+                        # UserComment tag is 37510 (0x9286)
+                        user_comment = exif_data.get(37510)
+                        if user_comment:
+                            # 1. Strip Header
+                            payload = user_comment
+                            if isinstance(user_comment, bytes):
+                                if user_comment.startswith(b'UNICODE\0'):
+                                    payload = user_comment[8:]
+                                elif user_comment.startswith(b'ASCII\0\0\0'):
+                                    payload = user_comment[8:]
+                                
+                                # 2. Heuristic Decoding
+                                # Try common encodings and check for "Mojibake" or valid text
+                                candidates = []
+                                for enc in ['utf-8', 'utf-16le', 'utf-16be']:
+                                    try:
+                                        decoded = payload.decode(enc)
+                                        # Filter empty
+                                        if not decoded.strip(): continue
+                                        
+                                        # Heuristic: Valid generation info is mostly printable ASCII + some punctuation
+                                        # Count printable vs total
+                                        printable = sum(1 for c in decoded if c.isprintable() or c in '\n\r\t')
+                                        ratio = printable / len(decoded)
+                                        candidates.append((ratio, decoded))
+                                    except: pass
+                                
+                                # Pick the best result (highest printable ratio)
+                                if candidates:
+                                    candidates.sort(key=lambda x: x[0], reverse=True)
+                                    best_ratio, best_text = candidates[0]
+                                    if best_ratio > 0.8: # Threshold: at least 80% printable
+                                        text = best_text
+                            
+                            elif isinstance(user_comment, str):
+                                text = user_comment
+                except Exception: pass
                 
             if text:
                 self._display_parameters(text)
@@ -377,38 +417,63 @@ class ExampleTabWidget(QWidget):
             print(f"Meta parse error: {e}")
 
     def _display_parameters(self, text):
+        import re
         pos = ""; neg = ""; params = ""
-        parts = text.split("Negative prompt:")
+        
+        # Regex split for "Negative prompt:" (case-insensitive)
+        # Using capturing group () to keep the delimiter if needed, but here we just split
+        # \s* handles optional spaces
+        parts = re.split(r"Negative prompt:", text, flags=re.IGNORECASE)
+        
         if len(parts) > 1:
             pos = parts[0].strip()
+            # The rest might contain Steps, so we look into the last part
             remainder = parts[1]
         else:
-            if "Steps:" in text:
-                pos = text.split("Steps:")[0].strip()
-                remainder = "Steps:" + text.split("Steps:")[1]
+            # Check if "Steps:" exists directly without negative prompt
+            # Look for "Steps:" with optional preceding newline or space
+            steps_match = re.search(r"\bSteps:", text, flags=re.IGNORECASE)
+            if steps_match:
+                pos = text[:steps_match.start()].strip()
+                remainder = text[steps_match.start():]
             else:
                 pos = text; remainder = ""
         
-        parts2 = remainder.split("Steps:")
-        if len(parts2) > 1:
-            neg = parts2[0].strip()
-            params = "Steps:" + parts2[1]
+        # Now split remainder for "Steps:"
+        steps_parts = re.split(r"\bSteps:", remainder, flags=re.IGNORECASE, maxsplit=1)
+        if len(steps_parts) > 1:
+            neg = steps_parts[0].strip()
+            params = "Steps:" + steps_parts[1]
         else:
             neg = remainder.strip()
             
         self.txt_pos.setText(pos)
         self.txt_neg.setText(neg) 
         
+        # Parse Key-Value pairs in params
+        # This is tricky because values can contain commas.
+        # But A1111 format is usually Key: Value, Key: Value
+        # We'll use a simple comma split for now as it covers 90% cases
         p_map = {}
-        for p in params.split(','):
-            if ':' in p: 
-                k, v = p.split(':', 1)
-                p_map[k.strip()] = v.strip()
+        if params:
+            # Simple parser: split by comma, assume k:v structure
+            for p in params.split(','):
+                if ':' in p: 
+                    k, v = p.split(':', 1)
+                    p_map[k.strip().lower()] = v.strip() # Lowercase keys for mapping
         
-        key_map = {"Steps": "Steps", "Sampler": "Sampler", "CFG scale": "CFG", "Seed": "Seed", "Model": "Model"}
-        for k, widget_key in key_map.items():
-            if k in p_map and widget_key in self.param_widgets:
-                self.param_widgets[widget_key].setText(p_map[k])
+        # Map to UI widgets (keys lowercased for comparison)
+        key_map = {
+            "steps": "Steps", 
+            "sampler": "Sampler", 
+            "cfg scale": "CFG", 
+            "seed": "Seed", 
+            "model": "Model"
+        }
+        
+        for k_lower, widget_key in key_map.items():
+            if k_lower in p_map and widget_key in self.param_widgets:
+                self.param_widgets[widget_key].setText(p_map[k_lower])
 
     def _clear_meta(self):
         self.txt_pos.clear()

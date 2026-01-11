@@ -136,35 +136,121 @@ class ThumbnailWorker(QThread):
 # ==========================================
 class FileScannerWorker(QThread):
     finished = Signal(dict)
-    def __init__(self, base_path, extensions):
+    def __init__(self, base_path, extensions, recursive=True):
         super().__init__()
         self.base_path = base_path
         self.extensions = extensions
+        self.recursive = recursive
         self._is_running = True
+
     def stop(self):
         self._is_running = False
+
     def run(self):
         file_structure = {}
         if not os.path.exists(self.base_path):
             self.finished.emit({})
             return
-        for root, dirs, files in os.walk(self.base_path):
+
+        # Stack for iterative traversal (dfs)
+        stack = [self.base_path]
+        
+        while stack:
             if not self._is_running: return
-            valid_files = []
-            for f in files:
-                if not self._is_running: return
-                if os.path.splitext(f)[1].lower() in self.extensions:
-                    full_path = os.path.join(root, f)
-                    try:
-                        st = os.stat(full_path)
-                        sz = format_size(st.st_size)
-                        dt = time.strftime('%Y-%m-%d', time.localtime(st.st_mtime))
-                    except (OSError, ValueError): sz="?"; dt="-"
-                    valid_files.append({"name": f, "path": full_path, "size": sz, "date": dt})
-            if valid_files or dirs:
-                 file_structure[root] = {"dirs": dirs, "files": valid_files}
+            
+            current_dir = stack.pop()
+            
+            try:
+                # Use os.scandir for performance optimization (cached stat)
+                with os.scandir(current_dir) as it:
+                    dirs_list = []
+                    files_list = []
+                    
+                    for entry in it:
+                        if not self._is_running: return
+                        
+                        if entry.is_dir():
+                            dirs_list.append(entry.name)
+                            if self.recursive:
+                                stack.append(entry.path)
+                        
+                        elif entry.is_file():
+                             if os.path.splitext(entry.name)[1].lower() in self.extensions:
+                                 try:
+                                     # Optimization: Use entry.stat() to avoid extra syscall
+                                     st = entry.stat()
+                                     sz = format_size(st.st_size)
+                                     dt = time.strftime('%Y-%m-%d', time.localtime(st.st_mtime))
+                                     files_list.append({
+                                         "name": entry.name, 
+                                         "path": entry.path, 
+                                         "size": sz, 
+                                         "date": dt
+                                     })
+                                 except OSError: 
+                                     files_list.append({
+                                         "name": entry.name, 
+                                         "path": entry.path, 
+                                         "size": "?", 
+                                         "date": "-"
+                                     })
+                    
+                    if dirs_list or files_list:
+                         file_structure[current_dir] = {"dirs": dirs_list, "files": files_list}
+            
+            except OSError:
+                continue
+                
         if self._is_running:
             self.finished.emit(file_structure)
+
+# ==========================================
+# Search Worker
+# ==========================================
+class FileSearchWorker(QThread):
+    finished = Signal(list) # [(path, type), ...]
+    
+    def __init__(self, roots, query, extensions):
+        super().__init__()
+        self.roots = roots if isinstance(roots, list) else [roots]
+        self.query = query.lower()
+        self.extensions = extensions
+        self._is_running = True
+
+    def stop(self):
+        self._is_running = False
+
+    def run(self):
+        results = []
+        
+        # Helper for recursive scan
+        def scan_dir(path):
+            if not self._is_running: return
+            
+            try:
+                with os.scandir(path) as it:
+                    for entry in it:
+                        if not self._is_running: return
+                        
+                        if entry.is_dir():
+                            scan_dir(entry.path)
+                            
+                        elif entry.is_file():
+                             name_lower = entry.name.lower()
+                             ext = os.path.splitext(name_lower)[1]
+                             
+                             if ext in self.extensions:
+                                 if self.query in name_lower:
+                                     results.append((entry.path, "file"))
+            except OSError:
+                pass
+
+        for root in self.roots:
+            if os.path.exists(root):
+                scan_dir(root)
+        
+        if self._is_running:
+            self.finished.emit(results)
 
 # ==========================================
 # Region: Network & Metadata Workers
