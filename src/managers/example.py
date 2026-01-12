@@ -134,7 +134,6 @@ class ExampleTabWidget(QWidget):
         grid_group = QGroupBox("Generation Settings")
         grid_layout = QGridLayout(grid_group)
         params = ["Steps", "Sampler", "CFG", "Seed", "Schedule"]
-        
         for i, p in enumerate(params):
             grid_layout.addWidget(QLabel(p), 0, i)
             le = QLineEdit()
@@ -142,6 +141,16 @@ class ExampleTabWidget(QWidget):
             grid_layout.addWidget(le, 1, i)
             
         meta_layout.addWidget(grid_group)
+        
+        # Resources (Civitai)
+        res_group = QGroupBox("Model")
+        res_layout = QVBoxLayout(res_group)
+        self.txt_resources = QTextEdit()
+        self.txt_resources.setPlaceholderText("Civitai resources info...")
+        self.txt_resources.setMaximumHeight(100) # Save some space
+        res_layout.addWidget(self.txt_resources)
+        meta_layout.addWidget(res_group)
+        
         self.splitter.addWidget(meta_widget)
         
         main_layout.addWidget(self.splitter)
@@ -295,16 +304,76 @@ class ExampleTabWidget(QWidget):
             neg = self.txt_neg.toPlainText()
             
             param_parts = []
-            rev_map = {"CFG": "CFG scale", "Steps": "Steps", "Sampler": "Sampler", "Seed": "Seed", "Schedule": "Schedule", "Model": "Model hash"}
+            rev_map = {"CFG": "CFG scale", "Steps": "Steps", "Sampler": "Sampler", "Seed": "Seed", "Schedule": "Schedule type", "Model": "Model"}
             for k, w in self.param_widgets.items():
                 v = w.text().strip()
                 if v:
                     pk = rev_map.get(k, k)
                     param_parts.append(f"{pk}: {v}")
             
+            # Extract Model from Resources if manually edited
+            res_content = self.txt_resources.toPlainText().strip()
+            # If standard Model param wasn't in param_parts (which it isn't anymore as widget is gone)
+            # We look for [checkpoint] Name
+            # Simple assumption: If line starts with [checkpoint], it's the model.
+            model_found = False
+            for line in res_content.split('\n'):
+                line = line.strip()
+                if line.lower().startswith("[checkpoint]"):
+                    # Extract name
+                    # Format: [checkpoint] Name (Version)
+                    # We want: Model: Name (Version)
+                    # Just strip [checkpoint] prefix
+                    model_val_extracted = line[len("[checkpoint]"):].strip()
+                    if model_val_extracted:
+                        param_parts.append(f"Model: {model_val_extracted}")
+                        model_found = True
+                    break # Assume one model
+            
+            # Also preserve Model hash if we ever had one? 
+            # We don't have visual widget for hash, so usually relies on preservation logic or re-parsing.
+            # But currently we only reconstruct from UI.
+            
             full_text = pos
             if neg: full_text += f"\nNegative prompt: {neg}"
             if param_parts: full_text += "\n" + ", ".join(param_parts)
+
+            # Append Resources
+            res_content = self.txt_resources.toPlainText().strip()
+            if res_content:
+                # If we have the original raw JSON and the text box content essentially matches our formatted version,
+                # we prefer to restore the original JSON to keep metadata clean.
+                # But implementing "matches formatted version" is hard.
+                # Strategy: If the user didn't touch the text box, self._raw_civitai_resources might be better?
+                # Actually, simply appending what's in the text box is the most transparent behavior.
+                # If the user sees "[LoRA] ...", that's what gets saved. This breaks parsers that expect JSON.
+                # Wait, if we stripped the JSON to show [LoRA], and we save that back, we lose the JSON structure forever.
+                # That violates "Preservation".
+                
+                # Check if we have raw resource data
+                # Legacy Raw Check Removed:
+                # We prioritize the visible text box content because the user might have edited the Model name or resources.
+                # If we append the old hidden JSON, it might contain stale Model info.
+                # So we always fall through to the text parsing logic below.
+                if False: # Disabled
+                    pass
+                else:
+                    # If it's just text (or user pasted JSON), append it.
+                    # If it starts with '[{"', it's JSON.
+                    if res_content.startswith('[{"') or "Civitai resources:" in res_content:
+                         full_text += f", {res_content}" # User provided RAW-like
+                    else:
+                     # It's our pretty list. Saving it as a comment might be safer?
+                     # Or just append.
+                     # We should NOT append the [checkpoint] line again as "Resources".
+                     # Because we converted it to "Model:" param above.
+                     # Filter out [checkpoint] lines from appension
+                     filtered_lines = [l for l in res_content.split('\n') if not l.strip().lower().startswith("[checkpoint]")]
+                     cleaned_res = "\n".join(filtered_lines).strip()
+                     if cleaned_res:
+                         full_text += f"\nResources:\n{cleaned_res}"
+             
+            # Open Image and Update Metadata
             
             # Open Image and Update Metadata
             img = Image.open(path)
@@ -366,7 +435,7 @@ class ExampleTabWidget(QWidget):
                 detection_type = validate_comfy_metadata(img)
             
             # Show generic "Workflow" regardless of type (ComfyUI or WebUI)
-            if detection_type:
+            if detection_type == "comfy":
                 self.lbl_wf_status.setText("✅ Workflow")
                 self.lbl_wf_status.setStyleSheet("color: green; font-weight: bold")
             else:
@@ -418,8 +487,6 @@ class ExampleTabWidget(QWidget):
         pos = ""; neg = ""; params = ""
         
         # Regex split for "Negative prompt:" (case-insensitive)
-        # Using capturing group () to keep the delimiter if needed, but here we just split
-        # \s* handles optional spaces
         parts = re.split(r"Negative prompt:", text, flags=re.IGNORECASE)
         
         if len(parts) > 1:
@@ -428,7 +495,6 @@ class ExampleTabWidget(QWidget):
             remainder = parts[1]
         else:
             # Check if "Steps:" exists directly without negative prompt
-            # Look for "Steps:" with optional preceding newline or space
             steps_match = re.search(r"\bSteps:", text, flags=re.IGNORECASE)
             if steps_match:
                 pos = text[:steps_match.start()].strip()
@@ -447,35 +513,141 @@ class ExampleTabWidget(QWidget):
         self.txt_pos.setText(pos)
         self.txt_neg.setText(neg) 
         
-        # Parse Key-Value pairs in params
-        # This is tricky because values can contain commas.
-        # But A1111 format is usually Key: Value, Key: Value
-        # We'll use a simple comma split for now as it covers 90% cases
-        p_map = {}
-        if params:
-            # Simple parser: split by comma, assume k:v structure
-            for p in params.split(','):
-                if ':' in p: 
-                    k, v = p.split(':', 1)
-                    p_map[k.strip().lower()] = v.strip() # Lowercase keys for mapping
+        # Robust Parsing
+        self._raw_civitai_resources = None # Clear previous
+        p_map = self._parse_parameters_robust(params)
         
-        # Map to UI widgets (keys lowercased for comparison)
+        # UI Mapping
         key_map = {
             "steps": "Steps", 
             "sampler": "Sampler", 
             "cfg scale": "CFG", 
             "seed": "Seed", 
-            "model": "Model"
+            "model": "Model", 
+            "model hash": "Model", # Sometimes it's Model hash
+            "schedule type": "Schedule"
         }
         
-        for k_lower, widget_key in key_map.items():
-            if k_lower in p_map and widget_key in self.param_widgets:
-                self.param_widgets[widget_key].setText(p_map[k_lower])
+        # Special handling for Model/Resources
+        model_val = ""
+        
+        if "model" in p_map: model_val = p_map["model"]
+        elif "model hash" in p_map: model_val = p_map["model hash"]
+        
+        # Format Resources List
+        formatted_lines = []
+        checkpoint_converted = False
+
+        # Handle Civitai Resources
+        if "civitai resources" in p_map:
+            raw_res = p_map["civitai resources"]
+            self._raw_civitai_resources = raw_res # Keep raw for preservation
+            try:
+                res_list = json.loads(raw_res)
+                if isinstance(res_list, list):
+                    for item in res_list:
+                        itype = item.get("type", "unknown")
+                        iname = item.get("modelName", "Unknown")
+                        iver = item.get("modelVersionName", "")
+                        
+                        line = f"[{itype}] {iname}"
+                        if iver: line += f" ({iver})"
+                        if itype != "checkpoint":
+                             weight = item.get("weight", 1.0)
+                             line += f" : {weight}"
+                        
+                        formatted_lines.append(line)
+                        if itype == "checkpoint": checkpoint_converted = True
+                        
+            except json.JSONDecodeError:
+                formatted_lines.append(raw_res) # Fallback
+        
+        # If no checkpoint found in Civitai resources, but we have Model param
+        if not checkpoint_converted and model_val:
+            formatted_lines.insert(0, f"[checkpoint] {model_val}")
+
+        resources_text = "\n".join(formatted_lines)
+        
+        # Apply Logic to Widgets
+        for k, v in self.param_widgets.items(): v.clear()
+        
+        # Set Model if found -- REMOVED WIDGET
+        # if model_val: self.param_widgets["Model"].setText(model_val)
+        
+        for k_ui in self.param_widgets:
+            # if k_ui == "Model": continue # Handled above
+            
+            # Reverse lookup for other keys
+            for k_map_lower, k_map_ui in key_map.items():
+                if k_map_ui == k_ui and k_map_lower in p_map:
+                    self.param_widgets[k_ui].setText(p_map[k_map_lower])
+                    break
+                    
+        self.txt_resources.setText(resources_text)
+
+    def _parse_parameters_robust(self, params_str):
+        """
+        Parses the parameter string handling JSON arrays/objects correctly.
+        Returns a dict of lowercased keys -> values.
+        """
+        if not params_str: return {}
+        
+        result = {}
+        in_key = True
+        
+        # State machine
+        buffer = []
+        stack = [] # For [], {}
+        in_quote = False
+        
+        def commit():
+            full_str = "".join(buffer).strip()
+            if not full_str: return
+            
+            # Try to find the first colon that is NOT inside quotes/brackets (simple approach)
+            # Actually, standard format is "Key: Value"
+            if ':' in full_str:
+                k, v = full_str.split(':', 1)
+                result[k.strip().lower()] = v.strip()
+            buffer.clear()
+            
+        for char in params_str:
+            if in_quote:
+                buffer.append(char)
+                if char == '"': in_quote = False
+                continue
+                
+            if char == '"':
+                in_quote = True
+                buffer.append(char)
+                continue
+                
+            if char in "[{":
+                stack.append(char)
+                buffer.append(char)
+                continue
+                
+            if char in "]}":
+                if stack: stack.pop()
+                buffer.append(char)
+                continue
+                
+            if char == ',' and not stack:
+                # Comma at root level -> Splitter
+                commit()
+                continue
+                
+            buffer.append(char)
+            
+        commit() # Commit last part
+        return result
 
     def _clear_meta(self):
         self.txt_pos.clear()
         self.txt_neg.clear()
         for w in self.param_widgets.values(): w.clear()
+        self.txt_resources.clear()
+        self._raw_civitai_resources = None
         self.lbl_wf_status.setText("No Workflow")
         self.lbl_wf_status.setStyleSheet("color: grey")
 
