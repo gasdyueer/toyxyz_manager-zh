@@ -28,9 +28,10 @@ except ImportError:
 class WorkflowManagerWidget(BaseManagerWidget):
     def __init__(self, directories, app_settings, task_monitor, parent_window=None):
         self.task_monitor = task_monitor
+        self.task_monitor = task_monitor
         self.parent_window = parent_window
-        self.image_loader_thread = ImageLoader()
-        self.image_loader_thread.start()
+        # self.image_loader_thread = ImageLoader() # Moved to Base
+        # self.image_loader_thread.start()
         
         # Filter directories for 'workflow' mode
         wf_dirs = {k: v for k, v in directories.items() if v.get("mode") == "workflow"}
@@ -77,19 +78,8 @@ class WorkflowManagerWidget(BaseManagerWidget):
 
 
     def init_right_panel(self):
-        self.tabs = QTabWidget()
-        
-        # Tab 1: Note (Markdown)
-        from ..ui_components import MarkdownNoteWidget
-        self.tab_note = MarkdownNoteWidget()
-        self.tab_note.save_requested.connect(self.save_note)
-        self.tab_note.set_media_handler(self.handle_media_insert)
-        self.tabs.addTab(self.tab_note, "Note")
-        
-        # Tab 2: Example
-        self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread)
-        self.tab_example.status_message.connect(self.show_status_message)
-        self.tabs.addTab(self.tab_example, "Example")
+        # Tabs (from Base)
+        self.tabs = self.setup_content_tabs()
         
         # Tab 3: Raw JSON
         self.tab_raw = QWidget()
@@ -144,61 +134,16 @@ class WorkflowManagerWidget(BaseManagerWidget):
         except Exception as e:
             self.txt_raw.setText(f"Error reading file: {e}")
 
-        # Load Note
-        cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
-        model_name = os.path.splitext(filename)[0]
-        json_desc_path = os.path.join(cache_dir, model_name + ".desc.json") # Different file to avoid collision involving .json
-        # User note logic
-        # Actually workflow itself IS a json file, so we can't store note INSIDE it easily without breaking structure if it's stricly comfy format.
-        # So we use a separate sidecar file in cache for notes about workflows.
-        
-        note_content = ""
-        if os.path.exists(json_desc_path):
-            try:
-                with open(json_desc_path, 'r', encoding='utf-8') as f:
-                    note_content = json.load(f).get("user_note", "")
-            except (OSError, json.JSONDecodeError): pass
-        self.tab_note.set_text(note_content)
-        self.tab_example.load_examples(path)
+        # Load Note (Standardized)
+        self.load_content_data(path)
 
 
 
-    def save_note(self, text):
-        if not self.current_path: return
-        
-        cache_dir = calculate_structure_path(self.current_path, self.get_cache_dir(), self.directories)
-        if not os.path.exists(cache_dir): os.makedirs(cache_dir)
-        model_name = os.path.splitext(os.path.basename(self.current_path))[0]
-        json_desc_path = os.path.join(cache_dir, model_name + ".desc.json")
-        
-        try:
-            data = {"user_note": text}
-            with open(json_desc_path, 'w', encoding='utf-8') as f: 
-                json.dump(data, f, indent=4, ensure_ascii=False)
-            
-            if self.parent_window: self.parent_window.statusBar().showMessage("Note saved.", 2000)
-        except Exception as e: 
-            print(f"Save Error: {e}")
-
-    def handle_media_insert(self, mtype):
-        if not self.current_path: 
-            QMessageBox.warning(self, "Error", "No workflow selected.")
-            return None
-            
-        if mtype not in ["image", "video"]: return None
-        
-        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
-        file_path, _ = QFileDialog.getOpenFileName(self, f"Select {mtype.title()}", "", filters)
-        if not file_path: return None
-        
-        return self.copy_media_to_cache(file_path, self.current_path)
+    # save_note and handle_media_insert removed (using Base)
 
 
             
     def closeEvent(self, event):
-        if hasattr(self, 'image_loader_thread'): 
-            self.image_loader_thread.stop()
-            self.image_loader_thread.wait(1000)
         super().closeEvent(event)
 
 

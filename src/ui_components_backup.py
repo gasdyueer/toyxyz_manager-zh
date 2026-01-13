@@ -258,8 +258,8 @@ class FileCollisionDialog(QDialog):
     def __init__(self, filename, parent=None):
         super().__init__(parent)
         self.setWindowTitle("File Exists")
-        self.setWindowTitle("File Exists")
-        # [Memory] Auto-delete off for safety
+        # [Memory] Auto-delete on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.resize(400, 150)
         self.result_value = "cancel"
         
@@ -332,8 +332,8 @@ class DownloadDialog(QDialog):
     def __init__(self, default_path, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Download Model")
-        self.setWindowTitle("Download Model")
-        # [Memory] Auto-delete off for safety
+        # [Memory] Auto-delete on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.resize(550, 180)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Civitai / HuggingFace URL:"))
@@ -354,8 +354,6 @@ class DownloadDialog(QDialog):
         btn_box.rejected.connect(self.reject)
         btn_box.button(QDialogButtonBox.Ok).setText("Download")
         layout.addWidget(btn_box)
-        
-        self.result_data = None
 
     def browse_folder(self):
         current = self.entry_path.text()
@@ -363,45 +361,8 @@ class DownloadDialog(QDialog):
         if folder:
             self.entry_path.setText(folder)
 
-    def accept(self):
-        self.result_data = (self.entry_url.text().strip(), self.entry_path.text().strip())
-        super().accept()
-
     def get_data(self):
-        return self.result_data if self.result_data else ("", "")
-
-class LinkInsertDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Insert Link")
-        self.resize(400, 150)
-        layout = QVBoxLayout(self)
-        
-        form = QFormLayout()
-        self.entry_url = QLineEdit()
-        self.entry_url.setPlaceholderText("https://...")
-        self.entry_text = QLineEdit()
-        self.entry_text.setPlaceholderText("Display Text (Optional)")
-        
-        form.addRow("URL:", self.entry_url)
-        form.addRow("Text:", self.entry_text)
-        layout.addLayout(form)
-        
-        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btn_box.accepted.connect(self.accept)
-        btn_box.rejected.connect(self.reject)
-        layout.addWidget(btn_box)
-        
-        self.result_data = None
-
-    def accept(self):
-        url = self.entry_url.text().strip()
-        text = self.entry_text.text().strip()
-        self.result_data = (text, url)
-        super().accept()
-        
-    def get_data(self):
-        return self.result_data
+        return self.entry_url.text().strip(), self.entry_path.text().strip()
 
 class TaskMonitorWidget(QWidget):
     def __init__(self, parent=None):
@@ -594,6 +555,7 @@ class FolderDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Folder Settings")
         # [Memory] Auto-delete on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.resize(400, 150)
         
         layout = QVBoxLayout(self)
@@ -619,27 +581,22 @@ class FolderDialog(QDialog):
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
-        
-        self.result_data = None
 
     def browse(self):
         d = QFileDialog.getExistingDirectory(self, "Select Folder", self.edit_path.text())
         if d: self.edit_path.setText(d)
 
-    def accept(self):
+    def get_data(self):
         path = self.edit_path.text().strip()
         alias = os.path.basename(path) if path else ""
-        self.result_data = (alias, path, self.combo_mode.currentText())
-        super().accept()
-
-    def get_data(self):
-        return self.result_data if self.result_data else ("", "", "model")
+        return alias, path, self.combo_mode.currentText()
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None, settings=None, directories=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         # [Memory] Auto-delete on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.resize(700, 600)
         self.settings = settings or {}
         self.directories = directories or {}
@@ -768,21 +725,17 @@ class SettingsDialog(QDialog):
         d = QFileDialog.getExistingDirectory(self, "Select Cache Folder", self.entry_cache.text())
         if d: self.entry_cache.setText(d)
 
-    def accept(self):
-        # Save state before closing
+    def get_data(self):
+        # Update settings dict
         self.settings["civitai_api_key"] = self.entry_civitai_key.text().strip()
         self.settings["hf_api_key"] = self.entry_hf_key.text().strip()
         self.settings["cache_path"] = self.entry_cache.text().strip()
         
-        self.result_data = {
+        # Return updated structure
+        return {
             "__settings__": self.settings,
             "directories": self.directories
         }
-        super().accept()
-
-    def get_data(self):
-        # Return cached result or empty dict if cancelled/failed
-        return hasattr(self, 'result_data') and self.result_data or {}
 
 # ==========================================
 # New Shared Components
@@ -905,14 +858,9 @@ class MarkdownNoteWidget(QWidget):
                 name = os.path.basename(file_path)
                 cursor.insertText(f"![{name}]({file_path})")
         elif mtype == "link":
-            dlg = LinkInsertDialog(self)
-            if dlg.exec():
-                res = dlg.get_data()
-                if res:
-                    text, url = res
-                    if not url: return
-                    if not text: text = "Link"
-                    cursor.insertText(f"[{text}]({url})")
+            url, ok = QInputDialog.getText(self, "Insert Link", "URL:")
+            if ok and url:
+                cursor.insertText(f"[Link Text]({url})")
         
         self.editor.setFocus()
 

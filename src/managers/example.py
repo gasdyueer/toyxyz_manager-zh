@@ -287,29 +287,14 @@ class ExampleTabWidget(QWidget):
 
         # [Fix] Release file handle & Retry logic
         try:
-            # 1. Unload image from UI
-            self.lbl_img.set_media(None)
-            self.lbl_img.repaint()
+            # 1. Unload image from UI (CLEANUP)
+            # This calls the method we verified in ui_components.py that sets media to None and explicitly closes components
+            self.lbl_img.clear_memory()
             QApplication.processEvents()
             
-            # 2. Force GC to release any lingering PIL/Qt handles
-            gc.collect()
-            
-            # 3. Retry loop for deletion
-            retries = 5
-            for i in range(retries):
-                try:
-                    if os.path.exists(path):
-                        os.remove(path)
-                    break # Success
-                except OSError as e:
-                    # WinError 32: Process cannot access the file
-                    if e.winerror == 32 and i < retries - 1:
-                        time.sleep(0.1 * (i + 1)) # Backoff
-                        QApplication.processEvents()
-                        continue
-                    else:
-                        raise e
+            # 2. Simple delete (No GC magic needed if handles are properly closed)
+            if os.path.exists(path):
+                os.remove(path)
 
             self.load_examples(self.current_item_path)
             self.status_message.emit("File permanently deleted.")

@@ -9,9 +9,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from ..workers import FileScannerWorker, ThumbnailWorker, FileSearchWorker
-from ..ui_components import ZoomWindow
-from ..core import VIDEO_EXTENSIONS
+from ..workers import FileScannerWorker, ThumbnailWorker, FileSearchWorker, ImageLoader
+from ..ui_components import ZoomWindow, MarkdownNoteWidget
+from .example import ExampleTabWidget
+from ..core import VIDEO_EXTENSIONS, calculate_structure_path
 
 class BaseManagerWidget(QWidget):
     def __init__(self, directories: Dict[str, Any], extensions, app_settings: Dict[str, Any] = None):
@@ -21,6 +22,8 @@ class BaseManagerWidget(QWidget):
         self.app_settings = app_settings or {}
         self.current_path = None
         self.active_scanners = []
+        self.image_loader_thread = ImageLoader()
+        self.image_loader_thread.start()
         self._init_base_ui()
         self.update_combo_list()
 
@@ -152,7 +155,7 @@ class BaseManagerWidget(QWidget):
         self.filter_edit.clear()
         # Initial scan is non-recursive (Lazy Load)
         self.scanner = FileScannerWorker(path, self.extensions, recursive=False)
-        self.scanner.finished.connect(self._on_scan_finished)
+        self.scanner.batch_ready.connect(self._on_batch_ready)
         self.scanner.finished.connect(self.scanner.deleteLater) # [Memory] Cleanup thread
         self.scanner.start()
         
@@ -160,34 +163,30 @@ class BaseManagerWidget(QWidget):
         if hasattr(self, 'btn_search_back'):
             self.btn_search_back.setEnabled(False)
 
-    def _on_scan_finished(self, structure):
-        if not structure:
-             # Check if scanner exists safely
-             try:
-                 if hasattr(self, 'scanner') and not self.scanner.isRunning(): return
-             except RuntimeError: return
+    def _on_batch_ready(self, current_dir, dirs, files):
         self.tree.setUpdatesEnabled(False)
         
-        # Re-resolve path to ensure we use the same key
+        # Find the parent item for 'current_dir'
+        # Since this is the initial scan (non-recursive), current_dir SHOULD be the root path
+        # But if we change it to recursive later, we need to find the item.
+        
+        # Check if current_dir matches the root
         name = self.folder_combo.currentText()
         data = self.directories.get(name)
         raw_path = data.get("path") if isinstance(data, dict) else data
-        if not raw_path: return
         base_path = os.path.normpath(raw_path)
-
-        # Retrieve root data - structure keys usually match the path passed to worker
-        # but to be safe against trailing slashes differences, we can check directly or normalized
-        root_data = structure.get(base_path)
         
-        # Fallback: if not found by strict key, try to find a key that is equivalent
-        if not root_data:
-            for k, v in structure.items():
-                if os.path.normpath(k) == base_path:
-                    root_data = v
-                    break
+        parent_item = self.tree.invisibleRootItem()
         
-        if root_data:
-            self._populate_item(self.tree.invisibleRootItem(), base_path, root_data)
+        # If the batch is for a subdirectory (not currently supported in initial refresh but good for safety)
+        if os.path.normpath(current_dir) != base_path:
+             # Find item by path... (Optimization: Too slow for large trees?)
+             # Since initial scan is recursive=False, we always populate root.
+             pass
+        
+        # Construct data dict as expected by _populate_item
+        root_data = {"dirs": dirs, "files": files}
+        self._populate_item(parent_item, current_dir, root_data)
 
         self.tree.setUpdatesEnabled(True)
 
@@ -234,31 +233,26 @@ class BaseManagerWidget(QWidget):
             if not path or not os.path.isdir(path): return
             
             worker = FileScannerWorker(path, self.extensions, recursive=False)
-            worker.finished.connect(lambda s: self._on_partial_scan_finished(s, item, worker))
+            # Connect to batch signal, reusing the logic to populate THIS item
+            worker.batch_ready.connect(lambda p, d, f: self._on_partial_batch_ready(item, p, d, f))
             worker.finished.connect(worker.deleteLater) # Cleanup thread
+            
+            # [Fix] Remove from active list when done to prevent accessing deleted objects
+            worker.finished.connect(lambda: self.active_scanners.remove(worker) if worker in self.active_scanners else None)
+            
             self.active_scanners.append(worker)
             worker.start()
 
-    def _on_partial_scan_finished(self, structure, parent_item, worker):
-        if worker in self.active_scanners:
-             self.active_scanners.remove(worker)
-        
-        path = parent_item.data(0, Qt.UserRole)
-        # Normalize just in case
-        path = os.path.normpath(path)
-        
-        # structure keys might be subtly different (os.scandir path sep), so check carefully
-        # But usually key is exactly what we passed
-        root_data = structure.get(path)
+    def _on_partial_batch_ready(self, parent_item, current_path, dirs, files):
+        # Note: This slot keeps the worker alive until finished? 
+        # Actually worker signals are connected to this.
         
         self.tree.setUpdatesEnabled(False)
-        if root_data:
-            self._populate_item(parent_item, path, root_data)
-        else:
-            # Empty folder or error, maybe add (Empty) label?
-            # For now just leave empty
-            pass
+        root_data = {"dirs": dirs, "files": files}
+        self._populate_item(parent_item, current_path, root_data)
         self.tree.setUpdatesEnabled(True)
+
+    # _on_partial_scan_finished REMOVED (Replaced by _on_partial_batch_ready)
 
     def search_files(self):
         query = self.filter_edit.text().strip()
@@ -432,6 +426,76 @@ class BaseManagerWidget(QWidget):
         if path and os.path.exists(path) and os.path.splitext(path)[1].lower() not in VIDEO_EXTENSIONS:
             ZoomWindow(path, self).show()
 
+    # === Shared Content Logic (Note/Example) ===
+    
+    def setup_content_tabs(self):
+        """Initializes the standard Note and Example tabs."""
+        from PySide6.QtWidgets import QTabWidget
+        self.tabs = QTabWidget()
+        
+        # Tab 1: Note
+        self.tab_note = MarkdownNoteWidget()
+        self.tab_note.save_requested.connect(self.save_note)
+        self.tab_note.set_media_handler(self.handle_media_insert)
+        self.tabs.addTab(self.tab_note, "Note")
+        
+        # Tab 2: Example
+        self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread)
+        self.tab_example.status_message.connect(self.show_status_message)
+        self.tabs.addTab(self.tab_example, "Example")
+        
+        return self.tabs
+
+    def load_content_data(self, path):
+        """Loads note content from .md file and initializes examples."""
+        if not path: return
+
+        filename = os.path.basename(path)
+        cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
+        model_name = os.path.splitext(filename)[0]
+        md_path = os.path.join(cache_dir, model_name + ".md")
+        
+        note_content = ""
+        if os.path.exists(md_path):
+            try:
+                with open(md_path, 'r', encoding='utf-8') as f:
+                    note_content = f.read()
+            except OSError: pass
+            
+        if hasattr(self, 'tab_note'): self.tab_note.set_text(note_content)
+        if hasattr(self, 'tab_example'): self.tab_example.load_examples(path)
+
+    def save_note(self, text):
+        if not self.current_path: return
+        try:
+            cache_dir = calculate_structure_path(self.current_path, self.get_cache_dir(), self.directories)
+            if not os.path.exists(cache_dir): os.makedirs(cache_dir)
+            
+            filename = os.path.basename(self.current_path)
+            model_name = os.path.splitext(filename)[0]
+            md_path = os.path.join(cache_dir, model_name + ".md")
+            
+            with open(md_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+                
+            self.show_status_message("Note saved (.md).")
+        except Exception as e: 
+            print(f"Save Error: {e}")
+            self.show_status_message(f"Save Failed: {e}")
+
+    def handle_media_insert(self, mtype):
+        if not self.current_path: 
+            QMessageBox.warning(self, "Error", "No item selected.")
+            return None
+            
+        if mtype not in ["image", "video"]: return None
+        
+        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
+        file_path, _ = QFileDialog.getOpenFileName(self, f"Select {mtype.title()}", "", filters)
+        if not file_path: return None
+        
+        return self.copy_media_to_cache(file_path, self.current_path)
+
     def open_current_folder(self):
         if self.current_path:
             f = os.path.dirname(self.current_path)
@@ -473,9 +537,12 @@ class BaseManagerWidget(QWidget):
         # Stop scanners
         if hasattr(self, 'active_scanners'):
             for worker in self.active_scanners:
-                if worker.isRunning():
-                    worker.stop()
-                    worker.wait(500)
+                try:
+                    if worker.isRunning():
+                        worker.stop()
+                        worker.wait(500)
+                except RuntimeError:
+                    pass # Already deleted
             self.active_scanners.clear()
             
         # Stop main scanner if running
@@ -495,9 +562,8 @@ class BaseManagerWidget(QWidget):
             except RuntimeError: pass
              
         # Stop thumb worker
-        if hasattr(self, 'thumb_worker'):
-            try:
-                if self.thumb_worker.isRunning():
-                     self.thumb_worker.wait(1000)
-            except RuntimeError: pass
+        # Stop Image Loader
+        if hasattr(self, 'image_loader_thread') and self.image_loader_thread.isRunning():
+            self.image_loader_thread.stop()
+            self.image_loader_thread.wait(500)
 

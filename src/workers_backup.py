@@ -80,32 +80,24 @@ class ImageLoader(QThread):
                 image = QImage()
                 if os.path.exists(path):
                     # [Safety] Check file size before full read
+                    # Files > 200MB are likely not simple previews or are too risky to load entirely into RAM for just a preview.
                     f_size = os.path.getsize(path)
                     if f_size > 200 * 1024 * 1024:
                         print(f"Skipping heavy image load: {path} ({f_size/1024/1024:.1f} MB)")
-                        # Even for heavy images, we should be careful about locking.
-                        # But large reads to RAM are also dangerous.
-                        # Fallback to standard reader but set Device check?
-                        # For now, stick to standard for heavy files (rare).
                         reader = QImageReader(path)
                         reader.setAutoTransform(True)
                         if reader.size().width() > 1024:
                              reader.setScaledSize(reader.size().scaled(1024, 1024, Qt.KeepAspectRatio))
                         image = reader.read()
                     else:
-                        # [Stability] Read to Memory Buffer first to release file lock immediately
+                        # [Memory Optim] Use QImageReader directly to avoid double buffering (Bytes + QByteArray)
+                        # QImageReader uses memory mapping or streamed reading efficiency.
+                        # It holds file lock during read(), typically 10-50ms for average images.
                         try:
-                            with open(path, "rb") as f:
-                                raw_data = f.read()
-                            
-                            byte_array = QByteArray(raw_data)
-                            buffer = QBuffer(byte_array)
-                            buffer.open(QBuffer.ReadOnly)
-                            
-                            reader = QImageReader(buffer)
+                            reader = QImageReader(path)
                             reader.setAutoTransform(True)
                             
-                            # Check size without loading full image
+                            # Check size without loading
                             orig_size = reader.size()
                             if orig_size.width() > 1024 or orig_size.height() > 1024:
                                 reader.setScaledSize(orig_size.scaled(1024, 1024, Qt.KeepAspectRatio))
@@ -113,8 +105,6 @@ class ImageLoader(QThread):
                             loaded = reader.read()
                             if not loaded.isNull():
                                 image = loaded
-                                
-                            buffer.close()
                         except Exception as e:
                             print(f"Image load error: {e}")
 
@@ -152,11 +142,7 @@ class ThumbnailWorker(QThread):
 # Region: File System Workers
 # ==========================================
 class FileScannerWorker(QThread):
-    # [Performance] Changed to emit batches instead of one giant dict
-    # Signals: path (key), dirs (list), files (list)
-    batch_ready = Signal(str, list, list) 
-    finished = Signal(dict) # Legacy support (returns empty dict now)
-
+    finished = Signal(dict)
     def __init__(self, base_path, extensions, recursive=True):
         super().__init__()
         self.base_path = base_path
@@ -168,10 +154,12 @@ class FileScannerWorker(QThread):
         self._is_running = False
 
     def run(self):
+        file_structure = {}
         if not os.path.exists(self.base_path):
             self.finished.emit({})
             return
 
+        # Stack for iterative traversal (dfs)
         stack = [self.base_path]
         
         while stack:
@@ -182,17 +170,14 @@ class FileScannerWorker(QThread):
             try:
                 # Use os.scandir for performance optimization (cached stat)
                 with os.scandir(current_dir) as it:
-                    dirs_buffer = []
-                    files_buffer = []
-                    
-                    # Batch emission logic
-                    check_counter = 0
+                    dirs_list = []
+                    files_list = []
                     
                     for entry in it:
                         if not self._is_running: return
                         
                         if entry.is_dir():
-                            dirs_buffer.append(entry.name)
+                            dirs_list.append(entry.name)
                             if self.recursive:
                                 stack.append(entry.path)
                         
@@ -203,29 +188,28 @@ class FileScannerWorker(QThread):
                                      st = entry.stat()
                                      sz = format_size(st.st_size)
                                      dt = time.strftime('%Y-%m-%d', time.localtime(st.st_mtime))
-                                     files_buffer.append({
+                                     files_list.append({
                                          "name": entry.name, 
                                          "path": entry.path, 
                                          "size": sz, 
                                          "date": dt
                                      })
                                  except OSError: 
-                                     pass
+                                     files_list.append({
+                                         "name": entry.name, 
+                                         "path": entry.path, 
+                                         "size": "?", 
+                                         "date": "-"
+                                     })
                     
-                    # Emit result for this folder
-                    # Note: We emit per folder. If a folder has 10k files, we could split it further,
-                    # but usually Per-Folder emission is enough to unfreeze UI.
-                    # Deep pagination inside a single flat folder would require new UI logic (append).
-                    # For now, emitting per folder is a huge improvement over "Wait for ALL folders".
-                    if dirs_buffer or files_buffer:
-                         # Sort here to reduce UI work? No, UI does sorting.
-                         self.batch_ready.emit(current_dir, dirs_buffer, files_buffer)
+                    if dirs_list or files_list:
+                         file_structure[current_dir] = {"dirs": dirs_list, "files": files_list}
             
             except OSError:
                 continue
                 
         if self._is_running:
-            self.finished.emit({}) # Signal done
+            self.finished.emit(file_structure)
 
 # ==========================================
 # Search Worker
@@ -290,14 +274,13 @@ class MetadataWorker(QThread):
     model_processed = Signal(bool, str, dict, str) 
     ask_overwrite = Signal(str)
 
-    def __init__(self, mode="auto", targets=None, manual_url=None, civitai_key="", hf_key="", cache_root=None, directories=None, overwrite_behavior='ask'):
+    def __init__(self, mode="auto", targets=None, manual_url=None, civitai_key="", hf_key="", cache_root=None, directories=None):
         super().__init__()
         self.mode = mode 
         self.targets = targets if targets else []
         self.manual_url = manual_url
         self.civitai_key = civitai_key
         self.hf_key = hf_key
-        self.overwrite_behavior = overwrite_behavior
         self.directories = directories.copy() if directories else {} 
         self._is_running = True 
         
@@ -344,11 +327,7 @@ class MetadataWorker(QThread):
     def run(self):
         total_files = len(self.targets)
         success_count = 0
-        
-        # Initialize global overwrite decision from init param
-        global_overwrite = None
-        if self.overwrite_behavior in ['yes_all', 'no_all']:
-            global_overwrite = self.overwrite_behavior
+        global_overwrite = None 
 
         self.batch_started.emit(self.targets)
 

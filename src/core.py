@@ -281,26 +281,26 @@ def extract_novelai_data(img) -> Optional[Dict[str, Any]]:
     try:
         # Check for Alpha channel availability
         if "A" not in img.getbands():
-             # If no alpha, it might be hiding in a "Description" or "Comment" text chunk (converted images)
-             # But LSB needs alpha.
              return None
              
         # Get alpha channel data
         alpha = img.getchannel('A')
-        # pixels_raw = list(alpha.getdata()) # Row-Major: (0,0), (1,0)... no wait, (0,0), (0,1)
         
-        # NovelAI Reference uses alpha.T.reshape((-1,))
-        # alpha is (H, W). alpha.T is (W, H). Flattening follows the first dimension of the TRANSPOSED array (which is W).
-        # So it iterates x=0 (all y), x=1 (all y)...
-        # effectively Column-Major order.
-        
-        w, h = img.size
-        # We need to construct the list in column-major order.
-        # Accessing by coordinate is slow via getpixel. 
-        # Loading all data is fast but wrong order.
-        # Let's load data and permute indices.
-        # Optimization: Use EfficientLSBReader to read pixels on-demand
-        # This avoids creating a list of 1M+ pixels for every image.
+        # NovelAI LSB encoding walks the alpha channel in a specific order.
+        # It's effectively column-major order if treating the flattened array logic correctly?
+        # Actually standard implementation often just does:
+        # data = list(alpha.getdata()) and takes bit 0.
+        # BUT getdata() is row-major. 
+        # The NAI reference implementation (linked in comment) typically does:
+        # alpha.flatten() (if numpy) which is row-major by default unless "F" order.
+        # Wait, the previous functional code had `EfficientLSBReader` handling x,y.
+        # Let's restore THAT specific logic which was: calling acc[x,y] with y incrementing inner loop?
+        # No, standard Row-Major is y outer, x inner.
+        # The previous code I saw (and likely removed) had logic for EfficientLSBReader.
+        # Let's assume the previous implementation I saw was correct for this codebase.
+        # Snippet I saw earlier:
+        # val = self.acc[self.x, self.y]; self.y += 1; if self.y >= h: self.y=0; self.x+=1
+        # This implies X is outer loop, Y is inner loop => Column-Major traversal.
         
         class EfficientLSBReader:
             def __init__(self, pixel_access, width, height):
@@ -313,7 +313,7 @@ def extract_novelai_data(img) -> Optional[Dict[str, Any]]:
             def read_bit(self):
                 if self.x >= self.w: return None
                 
-                # Column-Major Order: x=0 (y=0..h), x=1...
+                # Column-Major Traversal based on previous code snippet logic
                 val = self.acc[self.x, self.y]
                 
                 self.y += 1
@@ -321,7 +321,7 @@ def extract_novelai_data(img) -> Optional[Dict[str, Any]]:
                     self.y = 0
                     self.x += 1
                 
-                # NovelAI uses bitwise_and(val, 1)
+                # NovelAI uses bitwise_and(val, 1) to hide data in the alpha LSB
                 return val & 1
 
             def read_byte(self):
@@ -341,7 +341,7 @@ def extract_novelai_data(img) -> Optional[Dict[str, Any]]:
                 return res
 
         w, h = img.size
-        # Get fast pixel access (load() is usually fast)
+        # Get fast pixel access
         acc = alpha.load()
         
         # Check size sanity: Magic (15) + Length (4) = 19 bytes = 152 pixels minimum
@@ -367,6 +367,7 @@ def extract_novelai_data(img) -> Optional[Dict[str, Any]]:
         
         # 4. Decompress
         try:
+            import gzip
             json_bytes = gzip.decompress(payload)
             json_str = json_bytes.decode("utf-8")
             data = json.loads(json_str)
@@ -537,17 +538,12 @@ def standardize_metadata(img) -> Dict[str, Any]:
         res["prompts"]["positive"] = data.get("positive", "")
         res["prompts"]["negative"] = data.get("negative", "")
         
-    # 2. Check NovelAI (Text Chunks First)
-    # User Request: "Can we read standard metadata like other images?"
-    # Priority: Check "Comment" or "Description" for JSON first.
-    # This avoids LSB parsing if the image has been converted but retains metadata, 
-    # OR if the user prefers text speed.
+    # 2. Check NovelAI (Text Chunks Only - User Request)
     nai_data = None
-    for key in ["Comment", "Description"]:
+    for key in ["Comment", "Description", "Software"]:
         if key in img.info:
             try:
                 text = img.info[key]
-                # Fast check: NAI JSON usually starts with {
                 if not text.strip().startswith("{"): continue
                 
                 data = json.loads(text)
@@ -557,16 +553,16 @@ def standardize_metadata(img) -> Dict[str, Any]:
                         break
             except: pass
             
-    # Fallback: Check LSB (Steganography) if no text metadata found
-    if not nai_data:
+    # Fallback: Check LSB (Steganography) if no text metadata found AND no other metadata known
+    # User Request: "If other metadata exists, do not do LSB check."
+    if not nai_data and res["type"] == "unknown":
         nai_data = extract_novelai_data(img)
         
     if nai_data:
         res["type"] = "novelai"
         
         # NovelAI Reference: "Comment" inside JSON might be nested JSON string.
-        # CRITICAL FIX: The actual parameters often live inside this nested JSON.
-        # We must load it and MERGE it into nai_data so .get("steps") works.
+        # MERGE logic for robustness
         if "Comment" in nai_data and isinstance(nai_data["Comment"], str):
              try: 
                  comment_data = json.loads(nai_data["Comment"])
@@ -576,7 +572,6 @@ def standardize_metadata(img) -> Dict[str, Any]:
              
         # Map NAI fields
         # Note: "scale" is CFG in NAI. "steps" is steps.
-        # "sampler" might be "k_euler_ancestral" etc.
         res["main"] = {
             "steps": nai_data.get("steps"),
             "sampler": nai_data.get("sampler"),

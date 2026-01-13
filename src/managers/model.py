@@ -39,8 +39,7 @@ class ModelManagerWidget(BaseManagerWidget):
         self.parent_window = parent_window
         self.last_download_dir = None
         
-        self.image_loader_thread = ImageLoader()
-        self.image_loader_thread.start()
+        self.last_download_dir = None
 
         # Filter directories for 'model' mode
         model_dirs = {k: v for k, v in directories.items() if v.get("mode", "model") == "model"}
@@ -48,6 +47,8 @@ class ModelManagerWidget(BaseManagerWidget):
         
         self.download_queue = []
         self.download_queue = []
+        self.metadata_queue = []
+        self.selected_model_paths = []
         self.is_chain_processing = False
         self._gc_counter = 0 # [Memory] Counter for periodic GC
         
@@ -57,7 +58,7 @@ class ModelManagerWidget(BaseManagerWidget):
         super().set_directories(model_dirs)
         if hasattr(self, 'tab_example'):
             self.tab_example.directories = directories
-        if hasattr(self, 'worker'):
+        if getattr(self, 'worker', None):
             self.worker.directories = directories
 
     def init_center_panel(self):
@@ -104,20 +105,12 @@ class ModelManagerWidget(BaseManagerWidget):
         meta_btns.addWidget(btn_download, 1, 0)
         self.right_layout.addLayout(meta_btns)
         
-        self.tabs = QTabWidget()
         
-        # Tab 1: Note
-        from ..ui_components import MarkdownNoteWidget
-        self.tab_note = MarkdownNoteWidget()
-        self.tab_note.save_requested.connect(self.save_note)
-        self.tab_note.set_media_handler(self.handle_media_insert)
-        self.tabs.addTab(self.tab_note, "Note")
         
-        # Tab 2: Example
-        self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread)
-        self.tab_example.status_message.connect(self.show_status_message)
-        self.tabs.addTab(self.tab_example, "Example")
+        # Tabs (from Base)
+        self.tabs = self.setup_content_tabs()
         
+        # Download Tab Removed (User Request: Redundant with Task Monitor)
         
         self.right_layout.addWidget(self.tabs)
 
@@ -149,6 +142,7 @@ class ModelManagerWidget(BaseManagerWidget):
             gc.collect() # Force immediate release (User request)
             
             if type_ == "file" and path:
+                 self.current_path = path # [Fix] Update current path tracker
                  self._load_details(path)
             elif type_ == "dict":
                  # Assuming self.lbl_info is a QLabel to display messages
@@ -199,56 +193,33 @@ class ModelManagerWidget(BaseManagerWidget):
             gc.collect()
             self._gc_counter = 0
         
-        # Note Loading
-        cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
-        model_name = os.path.splitext(filename)[0]
-        json_path = os.path.join(cache_dir, model_name + ".json")
-        note_content = ""
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    note_content = json.load(f).get("user_note", "")
-            except (OSError, json.JSONDecodeError): pass
-        self.tab_note.set_text(note_content)
-        self.tab_example.load_examples(path)
+        # Note Loading (Standardized)
+        self.load_content_data(path)
 
 
 
-    def save_note(self, text):
-        if not self.current_path: return
-        try:
-            base, ext = os.path.splitext(self.current_path)
-            note_path = base + ".md"
-            with open(note_path, "w", encoding="utf-8") as f:
-                f.write(text)
+    
+    # save_note and handle_media_insert removed (using Base)
+
+    def _check_metadata_conflicts(self, targets):
+        """Checks if any target already has metadata (json/md/preview)."""
+        conflicts = []
+        from ..core import calculate_structure_path
+        
+        for path in targets:
+            cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
+            if not os.path.exists(cache_dir): continue
             
-            # Also update JSON description if exists
-            json_path = base + ".json"
-            if os.path.exists(json_path):
-                try:
-                    with open(json_path, "r", encoding="utf-8") as jf:
-                        data = json.load(jf)
-                    data["description"] = text
-                    with open(json_path, "w", encoding="utf-8") as jf:
-                        json.dump(data, jf, indent=4)
-                except (OSError, json.JSONDecodeError): pass
+            # Check for JSON hash cache or MD note
+            name = os.path.splitext(os.path.basename(path))[0]
+            json_p = os.path.join(cache_dir, name + ".json")
+            md_p = os.path.join(cache_dir, name + ".md")
+            
+            # Also check for preview images? Maybe just JSON is enough indicator of "processed"
+            if os.path.exists(json_p) or os.path.exists(md_p):
+                conflicts.append(path)
                 
-            if self.parent_window: self.parent_window.statusBar().showMessage("Note saved.", 2000)
-        except Exception as e: 
-            print(f"Save Error: {e}")
-
-    def handle_media_insert(self, mtype):
-        if not self.current_path: 
-            QMessageBox.warning(self, "Error", "No model selected.")
-            return None
-            
-        if mtype not in ["image", "video"]: return None
-        
-        filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
-        file_path, _ = QFileDialog.getOpenFileName(self, f"Select {mtype.title()}", "", filters)
-        if not file_path: return None
-        
-        return self.copy_media_to_cache(file_path, self.current_path)
+        return conflicts
 
     def _save_json_direct(self, model_path, content):
         cache_dir = calculate_structure_path(model_path, self.get_cache_dir(), self.directories)
@@ -266,40 +237,81 @@ class ModelManagerWidget(BaseManagerWidget):
 
 
     # === Civitai / Download Logic ===
-    def run_civitai(self, mode, targets=None):
+    def run_civitai(self, mode, targets=None, manual_url_override=None, overwrite_behavior_override=None):
         if targets is None:
             targets = self.selected_model_paths
         if not targets: return
         
         manual_url = None
         if mode == "manual":
-            if len(targets) > 1:
-                QMessageBox.warning(self, "Warning", "Manual mode supports only single file selection.")
-                return
-            url, ok = QInputDialog.getText(self, "Manual URL", "Enter Civitai or HuggingFace Model URL:")
-            if not ok or not url: return
-            manual_url = url
+            if manual_url_override:
+                manual_url = manual_url_override
+            else:
+                if len(targets) > 1:
+                    QMessageBox.warning(self, "Warning", "Manual mode supports only single file selection.")
+                    return
+                url, ok = QInputDialog.getText(self, "Manual URL", "Enter Civitai or HuggingFace Model URL:")
+                if not ok or not url: return
+                manual_url = url
         
-        if hasattr(self, 'worker') and self.worker.isRunning():
-            QMessageBox.warning(self, "Busy", "A background task is already running. Please wait or stop it.")
-            return
+        # [Overwrite Check]
+        final_targets = list(targets)
+        worker_overwrite = 'ask'
+        
+        # If override provided (from queue), skip check
+        if overwrite_behavior_override:
+            worker_overwrite = overwrite_behavior_override
+        else:
+            # First time check
+            conflicts = self._check_metadata_conflicts(targets)
+            if conflicts and not manual_url_override:
+                 reply = QMessageBox.question(self, "Metadata Exists", 
+                                              f"Found existing metadata for {len(conflicts)} files.\nOverwrite them?",
+                                              QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+                 if reply == QMessageBox.Cancel:
+                     return
+                 elif reply == QMessageBox.No:
+                     final_targets = [t for t in targets if t not in conflicts]
+                     if not final_targets:
+                         self.show_status_message("All tasks skipped (Metadata exists).")
+                         return
+                 elif reply == QMessageBox.Yes:
+                     worker_overwrite = 'yes_all'
 
-        self.tabs.setCurrentIndex(2)
+        if not final_targets: return
+
+        if hasattr(self, 'worker') and self.worker is not None and self.worker.isRunning():
+            self.metadata_queue.append((mode, final_targets, manual_url, worker_overwrite))
+            self.show_status_message(f"Task queued. (Queue size: {len(self.metadata_queue)})")
+            return
             
         cache_dir = self.get_cache_dir()
         self.worker = MetadataWorker(
-            mode, targets, manual_url, 
+            mode, final_targets, manual_url, 
             civitai_key=self.app_settings.get("civitai_api_key"),
             hf_key=self.app_settings.get("hf_api_key"),
             cache_root=cache_dir,
-            directories=self.directories
+            directories=self.directories,
+            overwrite_behavior=worker_overwrite
         )
-        self.worker.status_update.connect(self.show_status_message)
+        
+        # If we already filtered (No), existing ones are gone.
+        # If we said Yes (Overview), we want to force overwrite?
+        # MetadataWorker default behavior is to ask. 
+        # We can inject a pre-set decision into the worker?
+        # MetadataWorker logic: if _check_exists -> ask.
+        # We can set 'global_overwrite' logic or methods.
+        # Let's use `worker.set_overwrite_response('yes_all')` if we chose Yes.
+        
+        # Old hack removed. Overwrite decision is now passed to worker directly via overwrite_behavior.
+
+        self.worker.status_update.connect(lambda msg: self.show_status_message(msg, 0))
         self.worker.batch_started.connect(lambda paths: self.task_monitor.add_tasks(paths, task_type="Auto Match"))
         self.worker.task_progress.connect(self.task_monitor.update_task)
         self.worker.model_processed.connect(self._on_model_processed)
         self.worker.finished.connect(self._on_worker_finished)
         self.worker.finished.connect(self.worker.deleteLater) # Cleanup thread
+        self.worker.finished.connect(self._cleanup_worker) # Remove reference
         self.worker.ask_overwrite.connect(self.handle_overwrite_request)
         
         self.worker.start()
@@ -307,7 +319,7 @@ class ModelManagerWidget(BaseManagerWidget):
     def _on_model_processed(self, success, msg, data, model_path):
         if success:
             desc = data.get("description", "")
-            self._save_json_direct(model_path, desc)
+            self._save_note_direct(model_path, desc)
             if self.current_path == model_path:
                 self.tab_note.set_text(desc)
                 self.tab_example.load_examples(model_path)
@@ -363,14 +375,26 @@ class ModelManagerWidget(BaseManagerWidget):
             }
             self.download_queue.append(task)
             self.task_monitor.add_row(url, "Download", detail_info, "Queued")
-            self.tabs.setCurrentIndex(2) 
+            # self.tabs.setCurrentIndex(2) # Download Tab Removed
             self.show_status_message(f"Added to queue: {os.path.basename(target_dir)}")
             self._process_download_queue()
 
+    def _cleanup_dl_worker(self):
+        self.dl_worker = None
+
     def _process_download_queue(self):
-        if (hasattr(self, 'dl_worker') and self.dl_worker.isRunning()) or \
-           (hasattr(self, 'worker') and self.worker.isRunning()) or \
-           self.is_chain_processing:
+        # [Fix] Safe check for deleted C++ objects
+        dl_running = False
+        if hasattr(self, 'dl_worker') and self.dl_worker is not None:
+             try: dl_running = self.dl_worker.isRunning()
+             except RuntimeError: self.dl_worker = None
+        
+        md_running = False
+        if hasattr(self, 'worker') and self.worker is not None:
+             try: md_running = self.worker.isRunning()
+             except RuntimeError: self.worker = None
+
+        if dl_running or md_running or self.is_chain_processing:
             return
 
         if not self.download_queue:
@@ -391,6 +415,7 @@ class ModelManagerWidget(BaseManagerWidget):
         self.dl_worker.name_found.connect(self.task_monitor.update_task_name)
         self.dl_worker.ask_collision.connect(self.handle_download_collision)
         self.dl_worker.finished.connect(self.dl_worker.deleteLater) # Cleanup thread
+        self.dl_worker.finished.connect(self._cleanup_dl_worker) # Remove reference
         
         self.show_status_message(f"Starting download...")
         self.dl_worker.start()
@@ -410,7 +435,13 @@ class ModelManagerWidget(BaseManagerWidget):
         chain_started = False
         if file_path and os.path.exists(file_path):
             self.show_status_message(f"Auto-matching for: {os.path.basename(file_path)}...")
-            if hasattr(self, 'worker') and self.worker.isRunning():
+            # Use safe check
+            is_worker_running = False
+            if hasattr(self, 'worker') and self.worker is not None:
+                try: is_worker_running = self.worker.isRunning()
+                except RuntimeError: self.worker = None
+
+            if is_worker_running:
                  pass
             else:
                  self.run_civitai("auto", targets=[file_path])
@@ -435,22 +466,56 @@ class ModelManagerWidget(BaseManagerWidget):
         # NOT USED HERE - handled by MainWindow
         pass
 
+    def _cleanup_worker(self):
+        self.worker = None
+        if self.metadata_queue:
+            item = self.metadata_queue.pop(0)
+            if len(item) == 4:
+                mode, targets, manual_url, overwrite_beh = item
+            else:
+                mode, targets, manual_url = item
+                overwrite_beh = 'ask'
+                
+            self.show_status_message(f"Processing queued task... ({len(self.metadata_queue)} remaining)")
+            self.run_civitai(mode, targets, manual_url_override=manual_url, overwrite_behavior_override=overwrite_beh)
 
-
-
+    def _save_note_direct(self, model_path, text):
+        if not text: return
+        try:
+            from ..core import calculate_structure_path
+            cache_dir = calculate_structure_path(model_path, self.get_cache_dir(), self.directories)
+            if not os.path.exists(cache_dir): os.makedirs(cache_dir)
+            
+            filename = os.path.basename(model_path)
+            model_name = os.path.splitext(filename)[0]
+            md_path = os.path.join(cache_dir, model_name + ".md")
+            
+            with open(md_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+        except Exception as e:
+            print(f"Auto-save note failed: {e}")
 
     def closeEvent(self, event):
-        if hasattr(self, 'image_loader_thread'):
-            self.image_loader_thread.stop()
-            self.image_loader_thread.wait(1000)
+        self._cleanup_worker()
+        self._cleanup_dl_worker()
         
         # Stop Metadata Worker
-        if hasattr(self, 'worker') and self.worker.isRunning():
-            self.worker.stop()
-            self.worker.wait(1000)
+        # Use getattr default None to avoid AttributeError if not initialized
+        worker = getattr(self, 'worker', None)
+        if worker and worker.isRunning():
+            try:
+                worker.stop()
+                worker.wait(1000)
+            except RuntimeError:
+                pass # Already deleted
             
         # Stop Download Worker
-        if hasattr(self, 'dl_worker') and self.dl_worker.isRunning():
-            self.dl_worker.stop()
-            self.dl_worker.wait(1000)
+        dl_worker = getattr(self, 'dl_worker', None)
+        if dl_worker and dl_worker.isRunning():
+            try:
+                dl_worker.stop()
+                dl_worker.wait(1000)
+            except RuntimeError:
+                pass
+                
         super().closeEvent(event)
