@@ -1,4 +1,5 @@
 import os
+import gc
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget, 
     QSizePolicy, QDialog, QLineEdit, QFileDialog, QDialogButtonBox, 
@@ -43,8 +44,22 @@ class SmartMediaWidget(QWidget):
         self.lbl_image.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self._original_pixmap = None
         
+        self.stack.addWidget(self.lbl_image)
+        # Video components will be initialized lazily
+        self.video_widget = None
+        self.media_player = None
+        self.audio_output = None
+
+        if self.loader:
+            self.loader.image_loaded.connect(self._on_image_loaded)
+
+    def _init_video_components(self):
+        if self.media_player: return
+        
         self.video_widget = QVideoWidget()
         self.video_widget.setStyleSheet("background-color: #000;")
+        self.stack.addWidget(self.video_widget)
+        
         self.media_player = QMediaPlayer()
         self.audio_output = QAudioOutput()
         self.media_player.setAudioOutput(self.audio_output)
@@ -53,22 +68,42 @@ class SmartMediaWidget(QWidget):
         self.media_player.setLoops(QMediaPlayer.Infinite)
         self.media_player.errorOccurred.connect(self._on_media_error)
 
-        self.stack.addWidget(self.lbl_image)
-        self.stack.addWidget(self.video_widget)
-
-        if self.loader:
-            self.loader.image_loaded.connect(self._on_image_loaded)
+    def _destroy_video_components(self):
+        if self.media_player:
+            self.media_player.stop()
+            self.media_player.setSource(QUrl())
+            self.media_player.setVideoOutput(None)
+            self.media_player.deleteLater()
+            self.media_player = None
+            
+        if self.audio_output:
+            self.audio_output.deleteLater()
+            self.audio_output = None
+            
+        if self.video_widget:
+            self.stack.removeWidget(self.video_widget)
+            self.video_widget.close() # Explicitly close native window
+            self.video_widget.deleteLater()
+            self.video_widget = None
 
     def set_media(self, path):
         self.play_timer.stop()
-        self.media_player.stop()
-        self.media_player.setSource(QUrl()) 
         
-        self.current_path = path
-        self.lbl_image.clear()
-        self._original_pixmap = None
+        # [Memory] Force memory release check
+        if not path:
+             self._destroy_video_components()
+             self.lbl_image.clear()
+             self._original_pixmap = None
+             self.current_path = None
+             self.is_video = False
+             self.stack.setCurrentWidget(self.lbl_image)
+             self.lbl_image.setText("No Media")
+             return
+             
+        self.current_path = path # Update current_path here
 
-        if not path or not os.path.exists(path):
+        if not os.path.exists(path):
+            self._destroy_video_components()
             self.is_video = False
             self.stack.setCurrentWidget(self.lbl_image)
             self.lbl_image.setText("No Media")
@@ -77,10 +112,29 @@ class SmartMediaWidget(QWidget):
         ext = os.path.splitext(path)[1].lower()
         
         if ext in VIDEO_EXTENSIONS:
+            # Reuse or Init
+            if not self.media_player:
+                self._init_video_components()
+            
+            # Stop previous if any
+            if self.media_player.playbackState() == QMediaPlayer.PlayingState:
+                self.media_player.stop()
+            
             self.is_video = True
             self.stack.setCurrentWidget(self.video_widget)
-            self.play_timer.start()
+            
+            self.media_player.setSource(QUrl.fromLocalFile(path))
+            self.media_player.play()
+            # The play_timer is no longer strictly needed for initial playback
+            # as setSource and play are called directly.
+            # However, if there's a specific reason for a delayed start, it can remain.
+            # For now, we'll keep it as per the instruction, but its effect might be minimal.
+            self.play_timer.start() 
         else:
+            # Not a video -> Destroy video resources if they exist and were previously used
+            if self.is_video: # Only destroy if it was previously a video
+                self._destroy_video_components()
+            
             self.is_video = False
             self.stack.setCurrentWidget(self.lbl_image)
             self.lbl_image.setText("Loading...")
@@ -89,19 +143,29 @@ class SmartMediaWidget(QWidget):
             else:
                 self._load_image_sync(path)
 
+    def clear_memory(self):
+        """Explicitly release heavy resources."""
+        self._original_pixmap = None
+        self.lbl_image.clear()
+        self.play_timer.stop()
+        self._destroy_video_components() 
+        gc.collect() # Optional but helpful for large media 
+
     def _start_video_playback(self):
         if self.current_path and self.is_video and os.path.exists(self.current_path):
-            self.media_player.setSource(QUrl.fromLocalFile(self.current_path))
-            self.media_player.play()
+            if self.media_player:
+                self.media_player.setSource(QUrl.fromLocalFile(self.current_path))
+                self.media_player.play()
 
     def _on_media_error(self):
         self.lbl_image.setText("Video Error")
         self.stack.setCurrentWidget(self.lbl_image)
 
     def _load_image_sync(self, path):
-        # 동기 로딩 시에도 QImageReader 사용
+        # Synchrnous loading using QImageReader
         try:
-            # [Fix] Read file to memory first for sync loading too
+            # [Fix] Read file to memory first to release file handle immediately
+            # This is important for delete/rename operations
             with open(path, "rb") as f:
                 raw_data = f.read()
             
@@ -142,9 +206,12 @@ class SmartMediaWidget(QWidget):
 
     def _perform_resize(self):
         if self._original_pixmap and not self._original_pixmap.isNull():
-            if self.lbl_image.width() > 0 and self.lbl_image.height() > 0:
+            # Use self.size() (the widget's size) as the authoritative source
+            # because lbl_image size might be stale during resize events or stack switches.
+            target_size = self.size()
+            if target_size.width() > 0 and target_size.height() > 0:
                 scaled = self._original_pixmap.scaled(
-                    self.lbl_image.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
                 self.lbl_image.setPixmap(scaled)
 
@@ -191,6 +258,8 @@ class FileCollisionDialog(QDialog):
     def __init__(self, filename, parent=None):
         super().__init__(parent)
         self.setWindowTitle("File Exists")
+        # [Memory] Auto-delete on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.resize(400, 150)
         self.result_value = "cancel"
         
@@ -234,6 +303,8 @@ class OverwriteConfirmDialog(QDialog):
     def __init__(self, filename, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Overwrite Confirmation")
+        # [Memory] Auto-delete on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.result_value = "cancel"
         layout = QVBoxLayout(self)
         msg = QLabel(f"Data for <b>'{filename}'</b> already exists.<br>Do you want to overwrite it?")
@@ -261,6 +332,8 @@ class DownloadDialog(QDialog):
     def __init__(self, default_path, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Download Model")
+        # [Memory] Auto-delete on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.resize(550, 180)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Civitai / HuggingFace URL:"))
@@ -481,6 +554,8 @@ class FolderDialog(QDialog):
     def __init__(self, parent=None, path="", mode="model"):
         super().__init__(parent)
         self.setWindowTitle("Folder Settings")
+        # [Memory] Auto-delete on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.resize(400, 150)
         
         layout = QVBoxLayout(self)
@@ -520,6 +595,8 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None, settings=None, directories=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
+        # [Memory] Auto-delete on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.resize(700, 600)
         self.settings = settings or {}
         self.directories = directories or {}
@@ -792,18 +869,31 @@ class ZoomWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Zoom")
         self.setModal(True)
+        # [Memory Fix] Ensure widget is destroyed on close
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.setStyleSheet("background-color: black;")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0,0,0,0)
         self.lbl = QLabel()
         self.lbl.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.lbl)
+        
+        # Load pixmap
         self.pixmap = QPixmap(image_path)
+        
         self.showMaximized()
+
     def resizeEvent(self, event):
-        if not self.pixmap.isNull():
+        if self.pixmap and not self.pixmap.isNull():
             scaled = self.pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.lbl.setPixmap(scaled)
         super().resizeEvent(event)
+
     def mousePressEvent(self, event):
         self.close()
+
+    def closeEvent(self, event):
+        # [Memory Fix] Explicitly clear heavy resources
+        self.lbl.clear()
+        self.pixmap = None
+        super().closeEvent(event)

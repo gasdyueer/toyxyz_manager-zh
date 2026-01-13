@@ -49,9 +49,14 @@ class ImageLoader(QThread):
 
     def load_image(self, path):
         with QMutexWithLocker(self.mutex):
-            self.queue.clear() # 빠른 반응을 위해 이전 대기열 삭제
+            self.clear_queue()
             self.queue.append(path)
             self.condition.wakeOne()
+            
+    def clear_queue(self):
+        self.queue.clear()
+        # Note: We cannot stop the currently running thread safely in Python without flags
+        # But clearing the queue prevents future items from loading.
 
     def stop(self):
         self._is_running = False
@@ -74,32 +79,34 @@ class ImageLoader(QThread):
             if path:
                 image = QImage()
                 if os.path.exists(path):
-                    # [메모리 최적화] QImageReader를 사용하여 리사이징 로드
-                    try:
-                        # [Fix] Read file to memory first to release file handle immediately
-                        with open(path, "rb") as f:
-                            raw_data = f.read()
-                        
-                        byte_array = QByteArray(raw_data)
-                        buffer = QBuffer(byte_array)
-                        buffer.open(QBuffer.ReadOnly)
-
-                        reader = QImageReader(buffer)
-                        reader.setAutoTransform(True) # EXIF 회전 반영
-                        orig_size = reader.size()
-                        
-                        # 미리보기용으로 너무 큰 이미지는 1024px로 제한
-                        if orig_size.width() > 1024 or orig_size.height() > 1024:
-                            reader.setScaledSize(orig_size.scaled(1024, 1024, Qt.KeepAspectRatio))
-                        
-                        loaded = reader.read()
-                        if not loaded.isNull():
-                            image = loaded
+                    # [Safety] Check file size before full read
+                    # Files > 200MB are likely not simple previews or are too risky to load entirely into RAM for just a preview.
+                    f_size = os.path.getsize(path)
+                    if f_size > 200 * 1024 * 1024:
+                        print(f"Skipping heavy image load: {path} ({f_size/1024/1024:.1f} MB)")
+                        reader = QImageReader(path)
+                        reader.setAutoTransform(True)
+                        if reader.size().width() > 1024:
+                             reader.setScaledSize(reader.size().scaled(1024, 1024, Qt.KeepAspectRatio))
+                        image = reader.read()
+                    else:
+                        # [Memory Optim] Use QImageReader directly to avoid double buffering (Bytes + QByteArray)
+                        # QImageReader uses memory mapping or streamed reading efficiency.
+                        # It holds file lock during read(), typically 10-50ms for average images.
+                        try:
+                            reader = QImageReader(path)
+                            reader.setAutoTransform(True)
                             
-                        # Buffer closes automatically or by GC, but explicit close is good habit
-                        buffer.close()
-                    except Exception as e:
-                        print(f"Image load error: {e}")
+                            # Check size without loading
+                            orig_size = reader.size()
+                            if orig_size.width() > 1024 or orig_size.height() > 1024:
+                                reader.setScaledSize(orig_size.scaled(1024, 1024, Qt.KeepAspectRatio))
+                            
+                            loaded = reader.read()
+                            if not loaded.isNull():
+                                image = loaded
+                        except Exception as e:
+                            print(f"Image load error: {e}")
 
                 self.image_loaded.emit(path, image)
 
@@ -241,7 +248,12 @@ class FileSearchWorker(QThread):
                              
                              if ext in self.extensions:
                                  if self.query in name_lower:
-                                     results.append((entry.path, "file"))
+                                     # Collect stat info here while we have the entry
+                                     try:
+                                         st = entry.stat()
+                                         results.append((entry.path, "file", st.st_size, st.st_mtime))
+                                     except OSError:
+                                         results.append((entry.path, "file", 0, 0))
             except OSError:
                 pass
 

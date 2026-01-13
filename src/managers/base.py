@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Dict, Any
 
 from PySide6.QtWidgets import (
@@ -59,8 +60,14 @@ class BaseManagerWidget(QWidget):
         self.btn_search.setToolTip("Search files in the current directory (Recursive)")
         self.btn_search.clicked.connect(self.search_files)
         
+        self.btn_search_back = QPushButton("⬅️ Back")
+        self.btn_search_back.setToolTip("Return to full list (Clear search)")
+        self.btn_search_back.setEnabled(False) # Default hidden/disabled
+        self.btn_search_back.clicked.connect(self.cancel_search)
+        
         search_layout.addWidget(self.filter_edit)
         search_layout.addWidget(self.btn_search)
+        search_layout.addWidget(self.btn_search_back)
         
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Name", "Size", "Date", "Format"])
@@ -134,18 +141,31 @@ class BaseManagerWidget(QWidget):
         # [Fix] Normalize path here to ensure consistency with worker and popup logic
         path = os.path.normpath(raw_path)
         
-        if hasattr(self, 'scanner') and self.scanner.isRunning():
-            self.scanner.stop()
+        if hasattr(self, 'scanner'):
+            try:
+                if self.scanner.isRunning():
+                    self.scanner.stop()
+                    self.scanner.wait() 
+            except RuntimeError: pass
             
         self.tree.clear()
         self.filter_edit.clear()
         # Initial scan is non-recursive (Lazy Load)
         self.scanner = FileScannerWorker(path, self.extensions, recursive=False)
         self.scanner.finished.connect(self._on_scan_finished)
+        self.scanner.finished.connect(self.scanner.deleteLater) # [Memory] Cleanup thread
         self.scanner.start()
+        
+        # Disable Back button when in normal list view
+        if hasattr(self, 'btn_search_back'):
+            self.btn_search_back.setEnabled(False)
 
     def _on_scan_finished(self, structure):
-        if not structure and not hasattr(self, 'scanner'): return
+        if not structure:
+             # Check if scanner exists safely
+             try:
+                 if hasattr(self, 'scanner') and not self.scanner.isRunning(): return
+             except RuntimeError: return
         self.tree.setUpdatesEnabled(False)
         
         # Re-resolve path to ensure we use the same key
@@ -215,6 +235,7 @@ class BaseManagerWidget(QWidget):
             
             worker = FileScannerWorker(path, self.extensions, recursive=False)
             worker.finished.connect(lambda s: self._on_partial_scan_finished(s, item, worker))
+            worker.finished.connect(worker.deleteLater) # Cleanup thread
             self.active_scanners.append(worker)
             worker.start()
 
@@ -252,8 +273,15 @@ class BaseManagerWidget(QWidget):
         raw_path = data.get("path") if isinstance(data, dict) else data
         root_path = os.path.normpath(raw_path)
 
-        if hasattr(self, 'scanner') and self.scanner.isRunning(): self.scanner.stop()
-        if hasattr(self, 'search_worker') and self.search_worker.isRunning(): self.search_worker.stop()
+        if hasattr(self, 'scanner'):
+            try:
+                if self.scanner.isRunning(): self.scanner.stop()
+            except RuntimeError: pass
+
+        if hasattr(self, 'search_worker'):
+            try:
+                if self.search_worker.isRunning(): self.search_worker.stop()
+            except RuntimeError: pass
 
         self.tree.clear()
         
@@ -263,14 +291,18 @@ class BaseManagerWidget(QWidget):
         
         self.filter_edit.setEnabled(False)
         self.btn_search.setEnabled(False)
+        if hasattr(self, 'btn_search_back'): self.btn_search_back.setEnabled(False)
         
         self.search_worker = FileSearchWorker(root_path, query, self.extensions)
         self.search_worker.finished.connect(self._on_search_finished)
+        self.search_worker.finished.connect(self.search_worker.deleteLater) # Cleanup thread
         self.search_worker.start()
 
     def _on_search_finished(self, results):
         self.filter_edit.setEnabled(True)
         self.btn_search.setEnabled(True)
+        if hasattr(self, 'btn_search_back'):
+            self.btn_search_back.setEnabled(True)
         self.tree.clear()
         
         if not results:
@@ -278,24 +310,54 @@ class BaseManagerWidget(QWidget):
             item.setText(0, "No results found.")
             return
             
+        # [Safety] Cap results to prevent UI freeze
+        if len(results) > 2000:
+            results = results[:2000]
+            self.show_status_message(f"Search results capped to 2000 items (found {len(results)})")
+
         # Sort by name
         results.sort(key=lambda x: os.path.basename(x[0]).lower())
         
-        for path, type_ in results:
+        for item_data in results:
+            # Handle both old (2 items) and new (4 items) formats for safety, though only new will be emitted
+            path = item_data[0]
+            
+            # Unpack stats if available
+            size_bytes = 0
+            mtime = 0
+            if len(item_data) >= 4:
+                size_bytes = item_data[2]
+                mtime = item_data[3]
+            
             name = os.path.basename(path)
             item = QTreeWidgetItem(self.tree)
             item.setText(0, name)
-            item.setToolTip(0, path) # Show full path in tooltip
+            item.setToolTip(0, path) 
             
-            # Simple metadata (can't afford full stat for all results easily, maybe later)
-            item.setText(1, "-") 
-            item.setText(2, "-")
+            # Format Size
+            if size_bytes >= 1073741824: size_str = f"{size_bytes / 1073741824:.2f} GB"
+            elif size_bytes >= 1048576: size_str = f"{size_bytes / 1048576:.2f} MB"
+            elif size_bytes >= 1024: size_str = f"{size_bytes / 1024:.2f} KB"
+            else: size_str = f"{size_bytes} B"
+            
+            # Format Date
+            if mtime > 0:
+                date_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(mtime))
+            else:
+                date_str = "-"
+
+            item.setText(1, size_str) 
+            item.setText(2, date_str)
             
             ext = os.path.splitext(name)[1].lower()
             item.setText(3, ext)
             
             item.setData(0, Qt.UserRole, path)
             item.setData(0, Qt.UserRole + 1, "file")
+
+    def cancel_search(self):
+        self.filter_edit.clear()
+        self.refresh_list()
 
     def show_status_message(self, msg, duration=3000):
         if hasattr(self, 'parent_window') and self.parent_window:
@@ -352,6 +414,7 @@ class BaseManagerWidget(QWidget):
         is_video = (ext in VIDEO_EXTENSIONS)
         self.thumb_worker = ThumbnailWorker(file_path, target_path, is_video)
         self.thumb_worker.finished.connect(self._on_thumb_worker_finished)
+        self.thumb_worker.finished.connect(self.thumb_worker.deleteLater) # Cleanup thread
         self.thumb_worker.start()
 
     def _on_thumb_worker_finished(self, success, msg):
@@ -401,4 +464,40 @@ class BaseManagerWidget(QWidget):
         except Exception as e:
             self.show_status_message(f"Failed to copy media: {e}")
             return None
+
+    def closeEvent(self, event):
+        self.stop_all_workers()
+        super().closeEvent(event)
+
+    def stop_all_workers(self):
+        # Stop scanners
+        if hasattr(self, 'active_scanners'):
+            for worker in self.active_scanners:
+                if worker.isRunning():
+                    worker.stop()
+                    worker.wait(500)
+            self.active_scanners.clear()
+            
+        # Stop main scanner if running
+        if hasattr(self, 'scanner'):
+            try:
+                if self.scanner.isRunning():
+                     self.scanner.stop()
+                     self.scanner.wait(500)
+            except RuntimeError: pass
+
+        # Stop search worker
+        if hasattr(self, 'search_worker'):
+            try:
+                if self.search_worker.isRunning():
+                     self.search_worker.stop()
+                     self.search_worker.wait(500)
+            except RuntimeError: pass
+             
+        # Stop thumb worker
+        if hasattr(self, 'thumb_worker'):
+            try:
+                if self.thumb_worker.isRunning():
+                     self.thumb_worker.wait(1000)
+            except RuntimeError: pass
 

@@ -47,7 +47,9 @@ class ModelManagerWidget(BaseManagerWidget):
         super().__init__(model_dirs, SUPPORTED_EXTENSIONS["model"], app_settings)
         
         self.download_queue = []
+        self.download_queue = []
         self.is_chain_processing = False
+        self._gc_counter = 0 # [Memory] Counter for periodic GC
         
     def set_directories(self, directories):
         # Filter directories for 'model' mode
@@ -137,9 +139,35 @@ class ModelManagerWidget(BaseManagerWidget):
         if current_item:
             path = current_item.data(0, Qt.UserRole)
             type_ = current_item.data(0, Qt.UserRole + 1)
+            
+            # [Memory] Fast cleanup of previous view
+            self.image_loader_thread.clear_queue() # Cancel pending loads
+            self.preview_lbl.clear_memory()
+            self.tab_example.unload_current_examples()
+            
+            import gc
+            gc.collect() # Force immediate release (User request)
+            
             if type_ == "file" and path:
-                self.current_path = path
-                self._load_details(path)
+                 self._load_details(path)
+            elif type_ == "dict":
+                 # Assuming self.lbl_info is a QLabel to display messages
+                 # If not, this line might need adjustment based on actual UI
+                 self.info_labels["Name"].setText("Select a model file to see details.")
+                 self.info_labels["Ext"].setText("-")
+                 self.info_labels["Size"].setText("-")
+                 self.info_labels["Path"].setText("-")
+                 self.info_labels["Date"].setText("-")
+                 self.preview_lbl.set_media(None)
+                 self.tab_note.set_text("")
+            else:
+                 self.info_labels["Name"].setText("Select a model file to see details.")
+                 self.info_labels["Ext"].setText("-")
+                 self.info_labels["Size"].setText("-")
+                 self.info_labels["Path"].setText("-")
+                 self.info_labels["Date"].setText("-")
+                 self.preview_lbl.set_media(None)
+                 self.tab_note.set_text("")
 
     def _load_details(self, path):
         filename = os.path.basename(path)
@@ -163,6 +191,13 @@ class ModelManagerWidget(BaseManagerWidget):
         for ext in PREVIEW_EXTENSIONS:
             if os.path.exists(base + ext): preview_path = base + ext; break
         self.preview_lbl.set_media(preview_path)
+        
+        # [Memory] Periodic GC for model browsing
+        self._gc_counter += 1
+        if self._gc_counter >= 20: # Less frequent than examples as models are heavier to load structure? No, just heuristic.
+            import gc
+            gc.collect()
+            self._gc_counter = 0
         
         # Note Loading
         cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
@@ -264,6 +299,7 @@ class ModelManagerWidget(BaseManagerWidget):
         self.worker.task_progress.connect(self.task_monitor.update_task)
         self.worker.model_processed.connect(self._on_model_processed)
         self.worker.finished.connect(self._on_worker_finished)
+        self.worker.finished.connect(self.worker.deleteLater) # Cleanup thread
         self.worker.ask_overwrite.connect(self.handle_overwrite_request)
         
         self.worker.start()
@@ -354,6 +390,7 @@ class ModelManagerWidget(BaseManagerWidget):
         self.dl_worker.error.connect(self._on_download_error)
         self.dl_worker.name_found.connect(self.task_monitor.update_task_name)
         self.dl_worker.ask_collision.connect(self.handle_download_collision)
+        self.dl_worker.finished.connect(self.dl_worker.deleteLater) # Cleanup thread
         
         self.show_status_message(f"Starting download...")
         self.dl_worker.start()
@@ -406,4 +443,14 @@ class ModelManagerWidget(BaseManagerWidget):
         if hasattr(self, 'image_loader_thread'):
             self.image_loader_thread.stop()
             self.image_loader_thread.wait(1000)
+        
+        # Stop Metadata Worker
+        if hasattr(self, 'worker') and self.worker.isRunning():
+            self.worker.stop()
+            self.worker.wait(1000)
+            
+        # Stop Download Worker
+        if hasattr(self, 'dl_worker') and self.dl_worker.isRunning():
+            self.dl_worker.stop()
+            self.dl_worker.wait(1000)
         super().closeEvent(event)

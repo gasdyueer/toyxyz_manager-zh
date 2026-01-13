@@ -1,6 +1,7 @@
 import sys
 import os
 import json
+import gzip
 import re
 from typing import Dict, Any, Optional
 
@@ -266,3 +267,371 @@ def validate_comfy_metadata(img):
         pass
         
     return None
+
+# ==========================================
+# Enhanced Metadata Parsing
+# ==========================================
+
+def extract_novelai_data(img) -> Optional[Dict[str, Any]]:
+    """
+    Decodes NovelAI's LSB steganography from the Alpha channel.
+    Ref: https://github.com/NovelAI/novelai-image-metadata/blob/main/nai_meta.py
+    Returns a dictionary of metadata or None.
+    """
+    try:
+        # Check for Alpha channel availability
+        if "A" not in img.getbands():
+             # If no alpha, it might be hiding in a "Description" or "Comment" text chunk (converted images)
+             # But LSB needs alpha.
+             return None
+             
+        # Get alpha channel data
+        alpha = img.getchannel('A')
+        # pixels_raw = list(alpha.getdata()) # Row-Major: (0,0), (1,0)... no wait, (0,0), (0,1)
+        
+        # NovelAI Reference uses alpha.T.reshape((-1,))
+        # alpha is (H, W). alpha.T is (W, H). Flattening follows the first dimension of the TRANSPOSED array (which is W).
+        # So it iterates x=0 (all y), x=1 (all y)...
+        # effectively Column-Major order.
+        
+        w, h = img.size
+        # We need to construct the list in column-major order.
+        # Accessing by coordinate is slow via getpixel. 
+        # Loading all data is fast but wrong order.
+        # Let's load data and permute indices.
+        # Optimization: Use EfficientLSBReader to read pixels on-demand
+        # This avoids creating a list of 1M+ pixels for every image.
+        
+        class EfficientLSBReader:
+            def __init__(self, pixel_access, width, height):
+                self.acc = pixel_access
+                self.w = width
+                self.h = height
+                self.x = 0
+                self.y = 0
+                
+            def read_bit(self):
+                if self.x >= self.w: return None
+                
+                # Column-Major Order: x=0 (y=0..h), x=1...
+                val = self.acc[self.x, self.y]
+                
+                self.y += 1
+                if self.y >= self.h:
+                    self.y = 0
+                    self.x += 1
+                
+                # NovelAI uses bitwise_and(val, 1)
+                return val & 1
+
+            def read_byte(self):
+                byte_val = 0
+                for i in range(8):
+                    bit = self.read_bit()
+                    if bit is None: return None
+                    byte_val |= (bit << (7-i))
+                return byte_val
+                
+            def read_bytes(self, count):
+                res = bytearray()
+                for _ in range(count):
+                    b = self.read_byte()
+                    if b is None: break
+                    res.append(b)
+                return res
+
+        w, h = img.size
+        # Get fast pixel access (load() is usually fast)
+        acc = alpha.load()
+        
+        # Check size sanity: Magic (15) + Length (4) = 19 bytes = 152 pixels minimum
+        if w * h < 152: return None
+
+        reader = EfficientLSBReader(acc, w, h)
+        
+        # 1. Check Magic "stealth_pngcomp"
+        magic = b"stealth_pngcomp"
+        read_magic = reader.read_bytes(len(magic))
+        if read_magic != magic:
+            return None
+            
+        # 2. Read Length (32-bit Integer, Big Endian)
+        len_bytes = reader.read_bytes(4)
+        if len(len_bytes) != 4: return None
+        
+        data_len_bits = int.from_bytes(len_bytes, byteorder='big')
+        data_len_bytes = data_len_bits // 8
+        
+        # 3. Read Payload
+        payload = reader.read_bytes(data_len_bytes)
+        
+        # 4. Decompress
+        try:
+            json_bytes = gzip.decompress(payload)
+            json_str = json_bytes.decode("utf-8")
+            data = json.loads(json_str)
+            return data
+        except Exception:
+            return None
+        
+    except Exception as e:
+        # print(f"NAI Extract Error: {e}")
+        pass
+        
+    return None
+
+def parse_comfy_workflow(workflow_data) -> Dict[str, Any]:
+    """
+    Parses ComfyUI workflow JSON to extract basic generation parameters.
+    Attempts to find KSampler, CheckpointLoader, etc.
+    """
+    result = {}
+    
+    # Workflow is usually a dict of nodes: { "id": { "inputs": { ... }, "class_type": "..." } }
+    # Or a list (API format) or dict with "nodes" inside.
+    nodes = {}
+    if isinstance(workflow_data, dict):
+        if "nodes" in workflow_data: # Saved prompt structure
+            for n in workflow_data["nodes"]:
+                nodes[str(n.get("id"))] = n 
+        else:
+            # Maybe API prompt structure { "id": { inputs... class_type... }}
+            nodes = workflow_data
+    elif isinstance(workflow_data, list):
+         # API format list
+         for n in workflow_data:
+             if isinstance(n, dict):
+                 nodes[str(n.get("id", ""))] = n
+
+            
+    # Helper to find inputs
+    def find_node(class_types):
+        for nid, node in nodes.items():
+            ctype = node.get("class_type", "")
+            if ctype in class_types:
+                return node
+        return None
+
+    # KSampler
+    ksampler = find_node(["KSampler", "KSamplerAdvanced", "KSampler (Efficient)"])
+    if ksampler and "inputs" in ksampler:
+        inputs = ksampler["inputs"]
+        result["seed"] = inputs.get("seed") or inputs.get("noise_seed")
+        result["steps"] = inputs.get("steps")
+        result["cfg"] = inputs.get("cfg")
+        result["sampler"] = inputs.get("sampler_name")
+        result["scheduler"] = inputs.get("scheduler")
+        
+        # Try to trace prompts
+        # inputs["positive"] is usually [link_id, slot] in UI format, or [node_id, slot] in API format?
+        # In API format (which "prompt" is), it is [node_id, output_slot] e.g. ["3", 0]
+        
+        def get_text_from_node_id(nid):
+            if not nid: return ""
+            n = nodes.get(str(nid))
+            if not n: return ""
+            
+            # Simple case: CLIPTextEncode
+            if n.get("class_type") in ["CLIPTextEncode", "CLIPTextEncodeSDXL", "ShowText", "Text"]:
+                 val = n.get("inputs", {}).get("text")
+                 if isinstance(val, str): return val
+                 # Sometimes text is a widget widget_values if checking UI format, but we prefer API prompt logic now
+                 
+            # Recursive/Intermediate nodes (ConditioningCombine, etc) - Too complex for basic parser
+            return ""
+
+        pos_link = inputs.get("positive")
+        neg_link = inputs.get("negative")
+        
+        # API format: pos_link is [node_id, slot]
+        if isinstance(pos_link, list) and len(pos_link) > 0:
+             # Just look at the node it comes from.
+             # Note: It might be a Conditioning node (SetArea, Combine). 
+             # We just check if that source node IS a text encode. If not, we might give up or dig deeper.
+             # For now, simple direct link check.
+             result["positive"] = get_text_from_node_id(pos_link[0])
+             
+        if isinstance(neg_link, list) and len(neg_link) > 0:
+             result["negative"] = get_text_from_node_id(neg_link[0])
+             
+    # Fallback: If connection tracing failed (or intermediate nodes blocked us),
+    # just grab ALL CLIPTextEncode nodes and put them in positive?
+    if not result.get("positive") and not result.get("negative"):
+        # Gather all text
+        all_texts = []
+        for nid, node in nodes.items():
+            if node.get("class_type") in ["CLIPTextEncode", "CLIPTextEncodeSDXL"]:
+                t = node.get("inputs", {}).get("text")
+                if isinstance(t, str) and t.strip():
+                    all_texts.append(t)
+        
+        if all_texts:
+            # Heuristic: Longest is positive? Or just join them?
+            # Usually strict negative prompts are separate. 
+            # Let's just join them all as positive for visibility
+            result["positive"] = "\n---\n".join(all_texts)
+
+    # Checkpoint
+    ckpt = find_node(["CheckpointLoaderSimple", "CheckpointLoader"])
+    if ckpt and "inputs" in ckpt:
+        result["model"] = ckpt["inputs"].get("ckpt_name")
+        
+    # LoRAs (Simple scan)
+    loras = []
+    for nid, node in nodes.items():
+        ctype = node.get("class_type", "")
+        if ctype == "LoraLoader":
+            name = node.get("inputs", {}).get("lora_name")
+            strength = node.get("inputs", {}).get("strength_model")
+            if name:
+                 loras.append(f"{name} ({strength})")
+    
+    if loras:
+        result["loras"] = loras
+        
+    return result
+
+def standardize_metadata(img) -> Dict[str, Any]:
+    """
+    Unified metadata extractor. Returns standardized struct.
+    {
+       "type": "a1111" | "comfy" | "novelai" | "unknown",
+       "main": { "steps":..., "sampler":..., "cfg":..., "seed":..., "schedule":... },
+       "model": { "checkpoint":..., "loras": [], "resources": [] },
+       "prompts": { "positive":..., "negative":... },
+       "etc": { ... }
+    }
+    """
+    res = {
+        "type": "unknown",
+        "main": {},
+        "model": {"checkpoint": "", "loras": [], "resources": []},
+        "prompts": {"positive": "", "negative": ""},
+        "etc": {}
+    }
+    
+    # 1. Check ComfyUI Workflow (Graph)
+    workflow = None
+    # Prioritize "prompt" (API format) because it has clean input keys (seed, steps)
+    # "workflow" (UI format) often has raw widgets_values lists which are hard to parse.
+    if "prompt" in img.info:
+        try: workflow = json.loads(img.info["prompt"])
+        except: pass
+        
+    if not workflow and "workflow" in img.info:
+        try: workflow = json.loads(img.info["workflow"])
+        except: pass
+        
+    if workflow:
+        res["type"] = "comfy"
+        data = parse_comfy_workflow(workflow)
+        res["main"] = {
+            "steps": data.get("steps"),
+            "sampler": data.get("sampler"),
+            "cfg": data.get("cfg"),
+            "seed": data.get("seed"),
+            "schedule": data.get("scheduler")
+        }
+        res["model"]["checkpoint"] = data.get("model")
+        res["model"]["loras"] = data.get("loras", [])
+        res["prompts"]["positive"] = data.get("positive", "")
+        res["prompts"]["negative"] = data.get("negative", "")
+        
+    # 2. Check NovelAI (Text Chunks First)
+    # User Request: "Can we read standard metadata like other images?"
+    # Priority: Check "Comment" or "Description" for JSON first.
+    # This avoids LSB parsing if the image has been converted but retains metadata, 
+    # OR if the user prefers text speed.
+    nai_data = None
+    for key in ["Comment", "Description"]:
+        if key in img.info:
+            try:
+                text = img.info[key]
+                # Fast check: NAI JSON usually starts with {
+                if not text.strip().startswith("{"): continue
+                
+                data = json.loads(text)
+                # Heuristic to confirm NAI
+                if "n_samples" in data or "uc" in data or "steps" in data:
+                        nai_data = data
+                        break
+            except: pass
+            
+    # Fallback: Check LSB (Steganography) if no text metadata found
+    if not nai_data:
+        nai_data = extract_novelai_data(img)
+        
+    if nai_data:
+        res["type"] = "novelai"
+        
+        # NovelAI Reference: "Comment" inside JSON might be nested JSON string.
+        # CRITICAL FIX: The actual parameters often live inside this nested JSON.
+        # We must load it and MERGE it into nai_data so .get("steps") works.
+        if "Comment" in nai_data and isinstance(nai_data["Comment"], str):
+             try: 
+                 comment_data = json.loads(nai_data["Comment"])
+                 if isinstance(comment_data, dict):
+                     nai_data.update(comment_data)
+             except: pass
+             
+        # Map NAI fields
+        # Note: "scale" is CFG in NAI. "steps" is steps.
+        # "sampler" might be "k_euler_ancestral" etc.
+        res["main"] = {
+            "steps": nai_data.get("steps"),
+            "sampler": nai_data.get("sampler"),
+            "cfg": nai_data.get("scale"),
+            "seed": nai_data.get("seed"),
+            "schedule": "Euler" # NAI default usually
+        }
+        res["prompts"]["positive"] = nai_data.get("prompt", "")
+        # NAI uses "uc" for negative prompt
+        res["prompts"]["negative"] = nai_data.get("uc", "")
+        
+        # Everything else to ETC
+        exclude = {"prompt", "uc", "steps", "sampler", "scale", "seed", "Comment", "Description", "Source", "Software"}
+        for k, v in nai_data.items():
+            if k not in exclude:
+                # Format dictionaries nicer if possible
+                if isinstance(v, (dict, list)):
+                    try: v = json.dumps(v)
+                    except: pass
+                res["etc"][k] = v
+
+    # 3. Check A1111 (Parameters String) fallback
+    raw_params = ""
+    if "parameters" in img.info: 
+        raw_params = img.info["parameters"]
+    elif img.format in ["JPEG", "WEBP"] and hasattr(img, "_getexif"):
+        # Try Exif
+        try:
+             exif_data = img._getexif()
+             if exif_data:
+                user_comment = exif_data.get(37510)
+                if user_comment:
+                    payload = user_comment
+                    if isinstance(user_comment, bytes):
+                        if user_comment.startswith(b'UNICODE\0'): payload = user_comment[8:]
+                        elif user_comment.startswith(b'ASCII\0\0\0'): payload = user_comment[8:]
+                        
+                        candidates = []
+                        for enc in ['utf-8', 'utf-16le', 'utf-16be']:
+                            try:
+                                decoded = payload.decode(enc)
+                                if not decoded.strip(): continue
+                                printable = sum(1 for c in decoded if c.isprintable() or c in '\n\r\t')
+                                ratio = printable / len(decoded)
+                                candidates.append((ratio, decoded))
+                            except: pass
+                        if candidates:
+                            candidates.sort(key=lambda x: x[0], reverse=True)
+                            if candidates[0][0] > 0.8: raw_params = candidates[0][1]
+                    elif isinstance(user_comment, str):
+                        raw_params = user_comment
+        except: pass
+    
+    if raw_params and res["type"] == "unknown":
+         res["type"] = "a1111"
+         
+    res["raw_text"] = raw_params
+    return res

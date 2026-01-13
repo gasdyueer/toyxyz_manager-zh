@@ -39,14 +39,12 @@ class ModelManagerWindow(QMainWindow):
         
         # Header
         header = QHBoxLayout()
-        title = QLabel("🤖 toyxyz manager")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        # [User Request] Remove redundant title/icon, place Settings button here instead
         btn_settings = QPushButton("⚙️ Settings")
         btn_settings.setToolTip("Open Application Settings")
         btn_settings.clicked.connect(self.open_settings)
-        header.addWidget(title)
-        header.addStretch()
         header.addWidget(btn_settings)
+        header.addStretch() # Push everything else to right (if any)
         layout.addLayout(header)
         
         # Tab Widget (Mode Switcher)

@@ -5,7 +5,7 @@ import time
 import gc
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, 
-    QGridLayout, QGroupBox, QLineEdit, QSplitter, QFileDialog, QMessageBox, QApplication
+    QGridLayout, QGroupBox, QLineEdit, QSplitter, QFileDialog, QMessageBox, QApplication, QTabWidget
 )
 from PySide6.QtCore import Qt, Signal
 from PIL import Image
@@ -24,7 +24,9 @@ class ExampleTabWidget(QWidget):
         self.image_loader = image_loader
         self.current_item_path = None
         self.example_images = []
+        self.example_images = []
         self.current_example_idx = 0
+        self._gc_counter = 0 # [Memory] Counter for periodic GC
         
         self.init_ui()
 
@@ -143,20 +145,47 @@ class ExampleTabWidget(QWidget):
         meta_layout.addWidget(grid_group)
         
         # Resources (Civitai)
-        res_group = QGroupBox("Model")
-        res_layout = QVBoxLayout(res_group)
+        # Metadata Tabs (Model / Etc)
+        self.meta_tabs = QTabWidget()
+        
+        # Tab 1: Model
+        self.tab_model = QWidget()
+        tab_model_layout = QVBoxLayout(self.tab_model)
+        tab_model_layout.setContentsMargins(5,5,5,5)
         self.txt_resources = QTextEdit()
         self.txt_resources.setPlaceholderText("Civitai resources info...")
-        self.txt_resources.setMaximumHeight(100) # Save some space
-        res_layout.addWidget(self.txt_resources)
-        meta_layout.addWidget(res_group)
+        self.txt_resources.setMaximumHeight(100)
+        tab_model_layout.addWidget(self.txt_resources)
+        self.meta_tabs.addTab(self.tab_model, "Model")
+        
+        # Tab 2: Etc
+        self.tab_etc = QWidget()
+        tab_etc_layout = QVBoxLayout(self.tab_etc)
+        tab_etc_layout.setContentsMargins(5,5,5,5)
+        self.txt_etc = QTextEdit()
+        self.txt_etc.setPlaceholderText("Extra parameters (NovelAI, Notes, etc)...")
+        self.txt_etc.setReadOnly(True) # Mostly read-only for now
+        self.txt_etc.setMaximumHeight(100)
+        tab_etc_layout.addWidget(self.txt_etc)
+        self.meta_tabs.addTab(self.tab_etc, "Etc")
+        
+        meta_layout.addWidget(self.meta_tabs)
         
         self.splitter.addWidget(meta_widget)
         
         main_layout.addWidget(self.splitter)
         self.splitter.setSizes([500, 300])
 
-    def load_examples(self, path):
+    def unload_current_examples(self):
+        """Force cleanup of current examples to release memory."""
+        self.lbl_img.clear_memory()
+        self.example_images = []
+        self.current_example_idx = 0
+        self._clear_meta()
+        self.lbl_count.setText("0/0")
+        self.lbl_wf_status.setText("")
+        
+    def load_examples(self, path, target_filename=None):
         self.current_item_path = path
         self.example_images = []
         self.current_example_idx = 0
@@ -173,6 +202,13 @@ class ExampleTabWidget(QWidget):
             valid_exts = tuple(list(IMAGE_EXTENSIONS) + list(VIDEO_EXTENSIONS))
             self.example_images = [os.path.join(preview_dir, f) for f in os.listdir(preview_dir) if f.lower().endswith(valid_exts)]
             self.example_images.sort()
+            
+            # Attempt to restore selection
+            if target_filename:
+                for i, full_path in enumerate(self.example_images):
+                    if os.path.basename(full_path).lower() == target_filename.lower():
+                        self.current_example_idx = i
+                        break
             
         self._update_ui()
 
@@ -197,8 +233,20 @@ class ExampleTabWidget(QWidget):
 
     def change_example(self, delta):
         if not self.example_images: return
+        
+        # [Memory] Pre-cleanup before switching
+        # If we were playing video, force full cleanup to release MediaPlayer
+        if self.lbl_img.is_video:
+             self.lbl_img.clear_memory()
+             
         self.current_example_idx = (self.current_example_idx + delta) % len(self.example_images)
         self._update_ui()
+        
+        # [Memory] Periodic GC
+        self._gc_counter += 1
+        if self._gc_counter >= 10:
+            gc.collect()
+            self._gc_counter = 0
 
     def add_example_image(self):
         if not self.current_item_path: return
@@ -416,8 +464,8 @@ class ExampleTabWidget(QWidget):
                     print(f"Failed to remove original file: {e}")
                 
                 self.status_message.emit("Converted to PNG and saved metadata.")
-                # Reload list because filename changed
-                self.load_examples(self.current_item_path)
+                # Reload list because filename changed, but try to keep selection on the new file
+                self.load_examples(self.current_item_path, target_filename=os.path.basename(new_path))
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save metadata: {e}")
@@ -425,62 +473,88 @@ class ExampleTabWidget(QWidget):
     def _parse_and_display_meta(self, path):
         self._clear_meta()
         try:
-            from ..core import validate_comfy_metadata
+            from ..core import validate_comfy_metadata, standardize_metadata
             
             with Image.open(path) as img:
-                info = img.info.copy() # Copy info dict so it persists after close
-                fmt = img.format # Save format
-                
-                # Use robust validation from core
-                detection_type = validate_comfy_metadata(img)
+                # Standardized Metadata Extraction (Comfy / NovelAI / A1111)
+                meta = standardize_metadata(img)
             
-            # Show generic "Workflow" regardless of type (ComfyUI or WebUI)
-            if detection_type == "comfy":
-                self.lbl_wf_status.setText("✅ Workflow")
-                self.lbl_wf_status.setStyleSheet("color: green; font-weight: bold")
+            # Update Status Icon based on standardized type
+            # Update Status Icon based on standardized type (User Request: Only Show Comfy Workflow Status)
+            if meta["type"] == "comfy":
+                self.lbl_wf_status.setText("Workflow")
+                self.lbl_wf_status.setToolTip("Contains ComfyUI Workflow (JSON)")
+                self.lbl_wf_status.setStyleSheet("color: #4CAF50; font-weight: bold;")
             else:
-                 self.lbl_wf_status.setText("No Workflow")
-                 self.lbl_wf_status.setStyleSheet("color: grey")
-            
-            text = info.get("parameters", "")
-            if not text and fmt in ["JPEG", "WEBP"]:
-                # Try to read Exif UserComment for PARAMETERS (not workflow, but gen info)
-                # Keep existing GenInfo-Only logic here as fallback if workflow check didn't already consume it?
-                # Actually, validate_comfy_metadata checks for JSON workflow. 
-                # Here we are looking for A1111 style 'parameters' text.
-                try:
-                    with Image.open(path) as img:
-                         exif_data = img._getexif()
-                         if exif_data:
-                            user_comment = exif_data.get(37510)
-                            if user_comment:
-                                payload = user_comment
-                                if isinstance(user_comment, bytes):
-                                    if user_comment.startswith(b'UNICODE\0'): payload = user_comment[8:]
-                                    elif user_comment.startswith(b'ASCII\0\0\0'): payload = user_comment[8:]
-                                    
-                                    candidates = []
-                                    for enc in ['utf-8', 'utf-16le', 'utf-16be']:
-                                        try:
-                                            decoded = payload.decode(enc)
-                                            if not decoded.strip(): continue
-                                            printable = sum(1 for c in decoded if c.isprintable() or c in '\n\r\t')
-                                            ratio = printable / len(decoded)
-                                            candidates.append((ratio, decoded))
-                                        except: pass
-                                    if candidates:
-                                        candidates.sort(key=lambda x: x[0], reverse=True)
-                                        if candidates[0][0] > 0.8: text = candidates[0][1]
-                                elif isinstance(user_comment, str):
-                                    text = user_comment
-                except Exception: pass
+                self.lbl_wf_status.setText("no workflow")
+                self.lbl_wf_status.setToolTip("No ComfyUI workflow metadata found")
+                self.lbl_wf_status.setStyleSheet("color: #888; font-weight: normal;")
                 
-            if text:
-                self._display_parameters(text)
+            # Populate UI based on standardized data
+            
+            # Special Case: NovelAI
+            # NAI LSB data ("type": "novelai") is comprehensive and structured. 
+            # We prefer this over any Exif text which might be generic.
+
+            # Prioritize User-Edited/Hybrid Text Metadata
+            # If we have raw_text (A1111 style) and it looks valid (contains "Steps:" or "Sampler:"), 
+            # we prefer using that for display as it represents the most current/edited state.
+            if meta.get("raw_text", "") and ("Steps:" in meta["raw_text"] or "Sampler:" in meta["raw_text"]):
+                 try:
+                    self._display_parameters(meta["raw_text"])
+                 except Exception as e:
+                    print(f"Hybrid parse error: {e}")
+
+            # Special Case: NovelAI
+            # NAI LSB data ("type": "novelai") is comprehensive and structured. 
+            elif meta["type"] == "novelai":
+                p = meta["main"]
+                key_map = {
+                    "steps": "Steps", "sampler": "Sampler", "cfg": "CFG", "seed": "Seed", "schedule": "Schedule"
+                }
+                for k_std, k_ui in key_map.items():
+                    if p.get(k_std): self.param_widgets[k_ui].setText(str(p[k_std]))
+                    
+                self.txt_pos.setText(meta["prompts"]["positive"])
+                self.txt_neg.setText(meta["prompts"]["negative"])
+                
+                # Etc / Tags
+                etc_lines = []
+                for k, v in meta["etc"].items():
+                    etc_lines.append(f"{k}: {v}")
+                self.txt_etc.setText("\n".join(etc_lines))
+                    
+            elif meta["type"] == "comfy":
+                # Graph Only (No text block)
+                p = meta["main"]
+                key_map = {
+                    "steps": "Steps", "sampler": "Sampler", "cfg": "CFG", "seed": "Seed", "schedule": "Schedule"
+                }
+                for k_std, k_ui in key_map.items():
+                    if p.get(k_std): self.param_widgets[k_ui].setText(str(p[k_std]))
+                    
+                # Model/Resources
+                m = meta["model"]
+                lines = []
+                if m.get("checkpoint"): lines.append(f"[checkpoint] {m['checkpoint']}")
+                for lora in m.get("loras", []): lines.append(f"[lora] {lora}")
+                self.txt_resources.setText("\n".join(lines))
+                
+                # Prompts
+                self.txt_pos.setText(meta["prompts"]["positive"])
+                self.txt_neg.setText(meta["prompts"]["negative"])
+                
+            else:
+                 # Fallback: Last Resort Text
+                 if meta.get("raw_text", ""):
+                     try: self._display_parameters(meta["raw_text"])
+                     except: pass
                 
         except Exception as e: 
             # Non-fatal
             print(f"Meta parse error: {e}")
+            # Clear etc in case of partial failure
+            self.txt_etc.clear()
 
     def _display_parameters(self, text):
         import re
@@ -562,6 +636,10 @@ class ExampleTabWidget(QWidget):
             except json.JSONDecodeError:
                 formatted_lines.append(raw_res) # Fallback
         
+        # Handle generic Resources (from manual saves)
+        elif "resources" in p_map:
+             formatted_lines.append(p_map["resources"])
+        
         # If no checkpoint found in Civitai resources, but we have Model param
         if not checkpoint_converted and model_val:
             formatted_lines.insert(0, f"[checkpoint] {model_val}")
@@ -584,6 +662,22 @@ class ExampleTabWidget(QWidget):
                     break
                     
         self.txt_resources.setText(resources_text)
+        
+        # Populate Etc with unused keys
+        used_keys = set([k.lower() for k in key_map.keys()]) | {"civitai resources", "resources"}
+        # Note: key_map keys in source code are already lower case in my view (steps, sampler...)
+        # But ensure robust checking
+        used_keys = {
+            "steps", "sampler", "cfg scale", "seed", "model", "model hash", "schedule type",
+            "civitai resources", "resources"
+        }
+        
+        etc_lines = []
+        for k, v in p_map.items():
+            if k not in used_keys:
+                 etc_lines.append(f"{k}: {v}")
+        
+        self.txt_etc.setText("\n".join(etc_lines))
 
     def _parse_parameters_robust(self, params_str):
         """
@@ -647,6 +741,7 @@ class ExampleTabWidget(QWidget):
         self.txt_neg.clear()
         for w in self.param_widgets.values(): w.clear()
         self.txt_resources.clear()
+        self.txt_etc.clear()
         self._raw_civitai_resources = None
         self.lbl_wf_status.setText("No Workflow")
         self.lbl_wf_status.setStyleSheet("color: grey")
