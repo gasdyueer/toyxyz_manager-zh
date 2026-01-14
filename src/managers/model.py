@@ -21,7 +21,8 @@ from ..ui_components import (
     FileCollisionDialog, OverwriteConfirmDialog, ZoomWindow
 )
 from .example import ExampleTabWidget
-from ..workers import ImageLoader, ThumbnailWorker, MetadataWorker, ModelDownloadWorker
+from ..workers import ImageLoader, ThumbnailWorker, MetadataWorker
+from .download import DownloadController
 
 try:
     from PIL import Image
@@ -45,12 +46,15 @@ class ModelManagerWidget(BaseManagerWidget):
         model_dirs = {k: v for k, v in directories.items() if v.get("mode", "model") == "model"}
         super().__init__(model_dirs, SUPPORTED_EXTENSIONS["model"], app_settings)
         
-        self.download_queue = []
-        self.download_queue = []
         self.metadata_queue = []
         self.selected_model_paths = []
-        self.is_chain_processing = False
         self._gc_counter = 0 # [Memory] Counter for periodic GC
+        
+        # Download Controller
+        self.downl_controller = DownloadController(self, task_monitor, app_settings)
+        self.downl_controller.download_finished.connect(self._on_download_finished_controller)
+        self.downl_controller.download_error.connect(self._on_download_error_controller)
+        self.downl_controller.progress_updated.connect(lambda k, s, p: self.show_status_message(f"{s}: {p}%", 0))
         
     def set_directories(self, directories):
         # Filter directories for 'model' mode
@@ -72,7 +76,7 @@ class ModelManagerWidget(BaseManagerWidget):
             elif state == 2: player_state = "Paused"
             
         info.update({
-            "download_queue_size": len(self.download_queue),
+            "download_queue_size": len(self.downl_controller.download_queue),
             "metadata_queue_size": len(self.metadata_queue),
             "video_player_active": (self.preview_lbl.media_player is not None),
             "video_player_state": player_state,
@@ -343,9 +347,8 @@ class ModelManagerWidget(BaseManagerWidget):
 
     def _on_worker_finished(self):
         self.show_status_message("Batch Processed.")
-        if self.is_chain_processing:
-            self.is_chain_processing = False
-            self._process_download_queue()
+        # Resume download queue if we were in a chain
+        self.downl_controller.resume()
 
     def download_model_dialog(self):
         default_dir = None
@@ -373,105 +376,35 @@ class ModelManagerWidget(BaseManagerWidget):
                 return
 
             self.last_download_dir = target_dir
-            
-            display_name = "Unknown Model"
-            match_slug = re.search(r'models/\d+/([^/?#]+)', url)
-            match_id = re.search(r'models/(\d+)', url)
-            if match_slug:
-                display_name = match_slug.group(1)
-            elif match_id:
-                display_name = f"Model {match_id.group(1)}"
-            
-            detail_info = f"{display_name} / {os.path.basename(target_dir)}"
-
-            task = {
-                'url': url,
-                'target_dir': target_dir,
-                'display_name': detail_info
-            }
-            self.download_queue.append(task)
-            self.task_monitor.add_row(url, "Download", detail_info, "Queued")
-            # self.tabs.setCurrentIndex(2) # Download Tab Removed
+            self.downl_controller.add_download(url, target_dir)
             self.show_status_message(f"Added to queue: {os.path.basename(target_dir)}")
-            self._process_download_queue()
 
-    def _cleanup_dl_worker(self):
-        self.dl_worker = None
-
-    def _process_download_queue(self):
-        # [Fix] Safe check for deleted C++ objects
-        dl_running = False
-        if hasattr(self, 'dl_worker') and self.dl_worker is not None:
-             try: dl_running = self.dl_worker.isRunning()
-             except RuntimeError: self.dl_worker = None
-        
-        md_running = False
-        if hasattr(self, 'worker') and self.worker is not None:
-             try: md_running = self.worker.isRunning()
-             except RuntimeError: self.worker = None
-
-        if dl_running or md_running or self.is_chain_processing:
-            return
-
-        if not self.download_queue:
-            return
-
-        self.is_chain_processing = True
-        task = self.download_queue.pop(0)
-        
-        self.dl_worker = ModelDownloadWorker(
-            task['url'], task['target_dir'], 
-            api_key=self.app_settings.get("civitai_api_key"),
-            task_key=task['url'] 
-        )
-        
-        self.dl_worker.progress.connect(self._on_download_progress)
-        self.dl_worker.finished.connect(self._on_download_finished)
-        self.dl_worker.error.connect(self._on_download_error)
-        self.dl_worker.name_found.connect(self.task_monitor.update_task_name)
-        self.dl_worker.ask_collision.connect(self.handle_download_collision)
-        self.dl_worker.finished.connect(self.dl_worker.deleteLater) # Cleanup thread
-        self.dl_worker.finished.connect(self._cleanup_dl_worker) # Remove reference
-        
-        self.show_status_message(f"Starting download...")
-        self.dl_worker.start()
-
-    def handle_download_collision(self, filename):
-        dlg = FileCollisionDialog(filename, self)
-        dlg.exec()
-        self.dl_worker.set_collision_decision(dlg.result_value)
-
-    def _on_download_progress(self, key, status, percent):
-        self.task_monitor.update_task(key, status, percent)
-        self.show_status_message(f"Downloading... {percent}%")
-
-    def _on_download_finished(self, msg, file_path):
+    def _on_download_finished_controller(self, msg, file_path):
         self.show_status_message(msg)
-        self.refresh_list() 
+        self.refresh_list()
+        
+        # Auto-match Logic
         chain_started = False
         if file_path and os.path.exists(file_path):
-            self.show_status_message(f"Auto-matching for: {os.path.basename(file_path)}...")
-            # Use safe check
-            is_worker_running = False
-            if hasattr(self, 'worker') and self.worker is not None:
-                try: is_worker_running = self.worker.isRunning()
-                except RuntimeError: self.worker = None
-
-            if is_worker_running:
-                 pass
-            else:
-                 self.run_civitai("auto", targets=[file_path])
+             self.show_status_message(f"Auto-matching for: {os.path.basename(file_path)}...")
+             self.run_civitai("auto", targets=[file_path])
+             # Check if worker started (it might be busy)
+             if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
                  chain_started = True
-
+                 
         if not chain_started:
-            self.is_chain_processing = False
-            self._process_download_queue()
+             self.downl_controller.resume() # Process next immediately
 
-    def _on_download_error(self, err_msg):
+    def _on_download_error_controller(self, err_msg):
         self.show_status_message(f"Download Error: {err_msg}")
         QMessageBox.critical(self, "Download Failed", err_msg)
-        self.is_chain_processing = False
-        self._process_download_queue()
+        self.downl_controller.resume()
+
+
+
+
+
+
 
     def handle_overwrite_request(self, filename):
         dlg = OverwriteConfirmDialog(filename, self)
@@ -499,10 +432,9 @@ class ModelManagerWidget(BaseManagerWidget):
 
     def closeEvent(self, event):
         self._cleanup_worker()
-        self._cleanup_dl_worker()
+        self.downl_controller.stop()
         
         # Stop Metadata Worker
-        # Use getattr default None to avoid AttributeError if not initialized
         worker = getattr(self, 'worker', None)
         if worker and worker.isRunning():
             try:
@@ -511,13 +443,4 @@ class ModelManagerWidget(BaseManagerWidget):
             except RuntimeError:
                 pass # Already deleted
             
-        # Stop Download Worker
-        dl_worker = getattr(self, 'dl_worker', None)
-        if dl_worker and dl_worker.isRunning():
-            try:
-                dl_worker.stop()
-                dl_worker.wait(1000)
-            except RuntimeError:
-                pass
-                
         super().closeEvent(event)
