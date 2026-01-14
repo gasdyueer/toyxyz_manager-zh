@@ -1,6 +1,7 @@
 # User requested ignores
 cache/
 manager_config.json
+debug.log
 
 # Python
 __pycache__/

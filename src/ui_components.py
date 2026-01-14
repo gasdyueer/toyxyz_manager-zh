@@ -86,12 +86,20 @@ class SmartMediaWidget(QWidget):
             self.video_widget.deleteLater()
             self.video_widget = None
 
-    def set_media(self, path):
+    def _stop_video_playback(self):
+        """Stops playback and releases file lock without destroying components."""
+        if self.media_player:
+            self.media_player.stop()
+            self.media_player.setSource(QUrl())
+            # Do NOT detach video output here, to allow instant reuse.
+
+    def set_media(self, path, target_width=1024):
         self.play_timer.stop()
         
         # [Memory] Force memory release check
         if not path:
-             self._destroy_video_components()
+             # Reuse: Just stop playback and show default image
+             self._stop_video_playback()
              self.lbl_image.clear()
              self._original_pixmap = None
              self.current_path = None
@@ -131,17 +139,17 @@ class SmartMediaWidget(QWidget):
             # For now, we'll keep it as per the instruction, but its effect might be minimal.
             self.play_timer.start() 
         else:
-            # Not a video -> Destroy video resources if they exist and were previously used
-            if self.is_video: # Only destroy if it was previously a video
-                self._destroy_video_components()
+            # Not a video -> Stop video but keep components for future reuse
+            if self.is_video: 
+                self._stop_video_playback()
             
             self.is_video = False
             self.stack.setCurrentWidget(self.lbl_image)
             self.lbl_image.setText("Loading...")
             if self.loader:
-                self.loader.load_image(path)
+                self.loader.load_image(path, target_width)
             else:
-                self._load_image_sync(path)
+                self._load_image_sync(path, target_width)
 
     def clear_memory(self):
         """Explicitly release heavy resources."""
@@ -161,7 +169,7 @@ class SmartMediaWidget(QWidget):
         self.lbl_image.setText("Video Error")
         self.stack.setCurrentWidget(self.lbl_image)
 
-    def _load_image_sync(self, path):
+    def _load_image_sync(self, path, target_width=1024):
         # Synchrnous loading using QImageReader
         try:
             # [Fix] Read file to memory first to release file handle immediately
@@ -175,8 +183,9 @@ class SmartMediaWidget(QWidget):
 
             reader = QImageReader(buffer)
             reader.setAutoTransform(True)
-            if reader.size().width() > 1024:
-                reader.setScaledSize(reader.size().scaled(1024, 1024, Qt.KeepAspectRatio))
+            tw = target_width if target_width else 1024
+            if reader.size().width() > tw:
+                reader.setScaledSize(reader.size().scaled(tw, tw, Qt.KeepAspectRatio))
             img = reader.read()
             
             if not img.isNull():
@@ -250,6 +259,14 @@ class SmartMediaWidget(QWidget):
         
     def get_current_path(self):
         return self.current_path
+
+    def get_memory_usage(self):
+        """Returns approximate memory usage in bytes."""
+        size = 0
+        if self._original_pixmap and not self._original_pixmap.isNull():
+            # QPixmap depth is usually 32bpp (4 bytes)
+            size += self._original_pixmap.width() * self._original_pixmap.height() * 4
+        return size
 
 # ==========================================
 # Dialogs

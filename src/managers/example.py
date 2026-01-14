@@ -30,6 +30,15 @@ class ExampleTabWidget(QWidget):
         
         self.init_ui()
 
+    def get_debug_info(self):
+        mem_bytes = self.lbl_img.get_memory_usage()
+        return {
+            "file_list_count": len(self.example_images),
+            "est_memory_mb": mem_bytes / 1024 / 1024,
+            "gc_counter": self._gc_counter,
+            "current_index": self.current_example_idx
+        }
+
     def init_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(5,5,5,5)

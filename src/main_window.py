@@ -14,8 +14,9 @@ from .managers.workflow import WorkflowManagerWidget
 # from .managers.prompt import PromptManagerWidget # Future
 
 class ModelManagerWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, debug_mode=False):
         super().__init__()
+        self.debug_mode = debug_mode
         self.setWindowTitle("toyxyz manager")
         self.resize(1500, 950)
         
@@ -31,6 +32,76 @@ class ModelManagerWindow(QMainWindow):
             ))
 
         self._init_ui()
+
+        if self.debug_mode:
+            self.debug_timer = QTimer(self)
+            self.debug_timer.timeout.connect(self._print_debug_stats)
+            self.debug_timer.start(3000) # 3 seconds
+
+    def _print_debug_stats(self):
+        import os, gc, threading, logging
+        # [Win] Clear console
+        os.system('cls' if os.name == 'nt' else 'clear')
+        
+        info = []
+        info.append("=== TOYXYZ MANAGER DEBUG MODE ===")
+        
+        # 1. Global Stats
+        try:
+            import psutil
+            process = psutil.Process()
+            mem_info = process.memory_info()
+            rss_mb = mem_info.rss / 1024 / 1024
+            vms_mb = mem_info.vms / 1024 / 1024
+            info.append(f"Memory (RSS): {rss_mb:.2f} MB")
+            info.append(f"Memory (VMS): {vms_mb:.2f} MB")
+        except ImportError:
+            info.append(f"Memory Usage: (psutil not installed) GC Count: {gc.get_count()}")
+            
+        info.append(f"Active Threads: {threading.active_count()}")
+        objs = gc.get_objects()
+        info.append(f"GC Objects: {len(objs)}")
+
+        # [Debug] Granular Object Counting
+        from PySide6.QtGui import QPixmap, QImage
+        from PySide6.QtCore import QThread, QByteArray
+        from PySide6.QtMultimedia import QMediaPlayer
+        from PySide6.QtMultimediaWidgets import QVideoWidget
+        
+        counts = {"QPixmap": 0, "QImage": 0, "QMediaPlayer": 0, "QVideoWidget": 0, "QThread": 0}
+        for o in objs:
+            try:
+                if isinstance(o, QPixmap): counts["QPixmap"] += 1
+                elif isinstance(o, QImage): counts["QImage"] += 1
+                elif isinstance(o, QMediaPlayer): counts["QMediaPlayer"] += 1
+                elif isinstance(o, QVideoWidget): counts["QVideoWidget"] += 1
+                elif isinstance(o, QThread): counts["QThread"] += 1
+            except: pass
+            
+        info.append(f"Details: Pixmap={counts['QPixmap']} | Image={counts['QImage']} | Player={counts['QMediaPlayer']} | VideoW={counts['QVideoWidget']} | Thread={counts['QThread']}")
+        
+        # 2. Managers
+        if hasattr(self, 'model_manager'):
+            m_stats = self.model_manager.get_debug_info()
+            info.append(f"\n[Model Manager]")
+            info.append(f"  - Scanners: {m_stats['scanners_active']}")
+            info.append(f"  - Loader Queue: {m_stats['loader_queue']}")
+            info.append(f"  - Tree Items: {m_stats['tree_items']}")
+            info.append(f"  - DL Queue: {m_stats['download_queue_size']}")
+            info.append(f"  - Meta Queue: {m_stats['metadata_queue_size']}")
+            info.append(f"  - Video Active: {m_stats['video_player_active']} ({m_stats['video_player_state']})")
+            
+            ex_stats = m_stats.get('example_tab_stats', {})
+            info.append(f"  - [Examples] Files: {ex_stats.get('file_list_count')} | Active Mem: {ex_stats.get('est_memory_mb', 0):.2f} MB | GC Cnt: {ex_stats.get('gc_counter')}")
+
+        if hasattr(self, 'workflow_manager'):
+            w_stats = self.workflow_manager.get_debug_info()
+            info.append(f"\n[Workflow Manager]")
+            info.append(f"  - Scanners: {w_stats['scanners_active']}")
+            info.append(f"  - Loader Queue: {w_stats['loader_queue']}")
+
+        print("\n".join(info))
+        logging.info("\n" + "\n".join(info))
 
     def _init_ui(self):
         central = QWidget()

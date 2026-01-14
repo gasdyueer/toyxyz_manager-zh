@@ -23,9 +23,52 @@ class BaseManagerWidget(QWidget):
         self.current_path = None
         self.active_scanners = []
         self.image_loader_thread = ImageLoader()
+        self.image_loader_thread = ImageLoader()
         self.image_loader_thread.start()
         self._init_base_ui()
         self.update_combo_list()
+
+    def get_debug_info(self) -> Dict[str, Any]:
+        """Returns debug statistics for the manager."""
+        info = {
+            "scanners_active": len(self.active_scanners),
+            "search_active": hasattr(self, 'search_worker') and self.search_worker and self.search_worker.isRunning(),
+            "loader_queue": len(self.image_loader_thread.queue),
+            "tree_items": self.tree.topLevelItemCount()
+        }
+        return info
+
+    @staticmethod
+    def format_size(size_bytes):
+        if size_bytes >= 1073741824: return f"{size_bytes / 1073741824:.2f} GB"
+        elif size_bytes >= 1048576: return f"{size_bytes / 1048576:.2f} MB"
+        elif size_bytes >= 1024: return f"{size_bytes / 1024:.2f} KB"
+        return f"{size_bytes} B"
+
+    @staticmethod
+    def format_date(mtime, seconds=False):
+        if mtime <= 0: return "-"
+        fmt = '%Y-%m-%d %H:%M:%S' if seconds else '%Y-%m-%d %H:%M'
+        return time.strftime(fmt, time.localtime(mtime))
+
+    def save_note_for_path(self, path, text, silent=False):
+        if not path: return
+        try:
+            cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
+            if not os.path.exists(cache_dir): os.makedirs(cache_dir)
+            
+            filename = os.path.basename(path)
+            model_name = os.path.splitext(filename)[0]
+            md_path = os.path.join(cache_dir, model_name + ".md")
+            
+            with open(md_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+                
+            if not silent:
+                self.show_status_message("Note saved (.md).")
+        except Exception as e: 
+            print(f"Save Error: {e}")
+            self.show_status_message(f"Save Failed: {e}")
 
     def _init_base_ui(self):
         main_layout = QVBoxLayout(self)
@@ -329,16 +372,10 @@ class BaseManagerWidget(QWidget):
             item.setToolTip(0, path) 
             
             # Format Size
-            if size_bytes >= 1073741824: size_str = f"{size_bytes / 1073741824:.2f} GB"
-            elif size_bytes >= 1048576: size_str = f"{size_bytes / 1048576:.2f} MB"
-            elif size_bytes >= 1024: size_str = f"{size_bytes / 1024:.2f} KB"
-            else: size_str = f"{size_bytes} B"
+            size_str = self.format_size(size_bytes)
             
             # Format Date
-            if mtime > 0:
-                date_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(mtime))
-            else:
-                date_str = "-"
+            date_str = self.format_date(mtime)
 
             item.setText(1, size_str) 
             item.setText(2, date_str)
@@ -467,21 +504,7 @@ class BaseManagerWidget(QWidget):
 
     def save_note(self, text):
         if not self.current_path: return
-        try:
-            cache_dir = calculate_structure_path(self.current_path, self.get_cache_dir(), self.directories)
-            if not os.path.exists(cache_dir): os.makedirs(cache_dir)
-            
-            filename = os.path.basename(self.current_path)
-            model_name = os.path.splitext(filename)[0]
-            md_path = os.path.join(cache_dir, model_name + ".md")
-            
-            with open(md_path, 'w', encoding='utf-8') as f:
-                f.write(text)
-                
-            self.show_status_message("Note saved (.md).")
-        except Exception as e: 
-            print(f"Save Error: {e}")
-            self.show_status_message(f"Save Failed: {e}")
+        self.save_note_for_path(self.current_path, text)
 
     def handle_media_insert(self, mtype):
         if not self.current_path: 

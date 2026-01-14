@@ -61,6 +61,26 @@ class ModelManagerWidget(BaseManagerWidget):
         if getattr(self, 'worker', None):
             self.worker.directories = directories
 
+    def get_debug_info(self):
+        info = super().get_debug_info()
+        
+        # Player Stats
+        player_state = "Stopped"
+        if self.preview_lbl and self.preview_lbl.media_player:
+            state = self.preview_lbl.media_player.playbackState()
+            if state == 1: player_state = "Playing" 
+            elif state == 2: player_state = "Paused"
+            
+        info.update({
+            "download_queue_size": len(self.download_queue),
+            "metadata_queue_size": len(self.metadata_queue),
+            "video_player_active": (self.preview_lbl.media_player is not None),
+            "video_player_state": player_state,
+            "gc_counter": self._gc_counter,
+            "example_tab_stats": self.tab_example.get_debug_info() if hasattr(self, 'tab_example') else {}
+        })
+        return info
+
     def init_center_panel(self):
         self.info_labels = {}
         form_layout = QFormLayout()
@@ -168,12 +188,8 @@ class ModelManagerWidget(BaseManagerWidget):
         ext = os.path.splitext(filename)[1]
         try:
             st = os.stat(path)
-            size_bytes = st.st_size
-            if size_bytes >= 1073741824: size_str = f"{size_bytes / 1073741824:.2f} GB"
-            elif size_bytes >= 1048576: size_str = f"{size_bytes / 1048576:.2f} MB"
-            elif size_bytes >= 1024: size_str = f"{size_bytes / 1024:.2f} KB"
-            else: size_str = f"{size_bytes} B"
-            date_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(st.st_mtime))
+            size_str = self.format_size(st.st_size)
+            date_str = self.format_date(st.st_mtime, seconds=True)
         except (OSError, ValueError): size_str = "Unknown"; date_str = "Unknown"
         self.info_labels["Name"].setText(filename)
         self.info_labels["Ext"].setText(ext)
@@ -319,7 +335,7 @@ class ModelManagerWidget(BaseManagerWidget):
     def _on_model_processed(self, success, msg, data, model_path):
         if success:
             desc = data.get("description", "")
-            self._save_note_direct(model_path, desc)
+            self.save_note_for_path(model_path, desc, silent=True)
             if self.current_path == model_path:
                 self.tab_note.set_text(desc)
                 self.tab_example.load_examples(model_path)
@@ -479,21 +495,7 @@ class ModelManagerWidget(BaseManagerWidget):
             self.show_status_message(f"Processing queued task... ({len(self.metadata_queue)} remaining)")
             self.run_civitai(mode, targets, manual_url_override=manual_url, overwrite_behavior_override=overwrite_beh)
 
-    def _save_note_direct(self, model_path, text):
-        if not text: return
-        try:
-            from ..core import calculate_structure_path
-            cache_dir = calculate_structure_path(model_path, self.get_cache_dir(), self.directories)
-            if not os.path.exists(cache_dir): os.makedirs(cache_dir)
-            
-            filename = os.path.basename(model_path)
-            model_name = os.path.splitext(filename)[0]
-            md_path = os.path.join(cache_dir, model_name + ".md")
-            
-            with open(md_path, 'w', encoding='utf-8') as f:
-                f.write(text)
-        except Exception as e:
-            print(f"Auto-save note failed: {e}")
+    # _save_note_direct removed (Inherited save_note_for_path used)
 
     def closeEvent(self, event):
         self._cleanup_worker()

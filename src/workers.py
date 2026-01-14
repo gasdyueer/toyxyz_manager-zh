@@ -47,10 +47,10 @@ class ImageLoader(QThread):
         self.condition = QWaitCondition()
         self._is_running = True
 
-    def load_image(self, path):
+    def load_image(self, path, target_width=None):
         with QMutexWithLocker(self.mutex):
             self.clear_queue()
-            self.queue.append(path)
+            self.queue.append((path, target_width))
             self.condition.wakeOne()
             
     def clear_queue(self):
@@ -73,10 +73,15 @@ class ImageLoader(QThread):
                 self.mutex.unlock()
                 break
 
-            path = self.queue.popleft() if self.queue else None
+            if self.queue:
+                path, target_width = self.queue.popleft()
+            else:
+                path = None
+                target_width = None
             self.mutex.unlock()
 
             if path:
+                t_start = time.time()
                 image = QImage()
                 if os.path.exists(path):
                     # [Safety] Check file size before full read
@@ -89,8 +94,9 @@ class ImageLoader(QThread):
                         # For now, stick to standard for heavy files (rare).
                         reader = QImageReader(path)
                         reader.setAutoTransform(True)
-                        if reader.size().width() > 1024:
-                             reader.setScaledSize(reader.size().scaled(1024, 1024, Qt.KeepAspectRatio))
+                        tw = target_width if target_width else 1024
+                        if reader.size().width() > tw:
+                             reader.setScaledSize(reader.size().scaled(tw, tw, Qt.KeepAspectRatio))
                         image = reader.read()
                     else:
                         # [Stability] Read to Memory Buffer first to release file lock immediately
@@ -107,8 +113,9 @@ class ImageLoader(QThread):
                             
                             # Check size without loading full image
                             orig_size = reader.size()
-                            if orig_size.width() > 1024 or orig_size.height() > 1024:
-                                reader.setScaledSize(orig_size.scaled(1024, 1024, Qt.KeepAspectRatio))
+                            tw = target_width if target_width else 1024
+                            if orig_size.width() > tw or orig_size.height() > tw:
+                                reader.setScaledSize(orig_size.scaled(tw, tw, Qt.KeepAspectRatio))
                             
                             loaded = reader.read()
                             if not loaded.isNull():
@@ -119,6 +126,11 @@ class ImageLoader(QThread):
                             print(f"Image load error: {e}")
 
                 self.image_loaded.emit(path, image)
+                
+                t_end = time.time()
+                dur = t_end - t_start
+                if dur > 0.5:
+                    print(f"[Profiling] Slow Load: {dur:.2f}s | {os.path.basename(path)}")
 
 # ==========================================
 # Thumbnail Worker

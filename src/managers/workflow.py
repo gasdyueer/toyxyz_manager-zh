@@ -107,9 +107,8 @@ class WorkflowManagerWidget(BaseManagerWidget):
         filename = os.path.basename(path)
         try:
             st = os.stat(path)
-            size_str = f"{st.st_size} B"
-            if st.st_size > 1024: size_str = f"{st.st_size/1024:.2f} KB"
-            date_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(st.st_mtime))
+            size_str = self.format_size(st.st_size)
+            date_str = self.format_date(st.st_mtime, seconds=True)
         except (OSError, ValueError): size_str="?"; date_str="?"
         
         self.info_labels["Name"].setText(filename)
