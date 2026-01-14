@@ -5,7 +5,7 @@ import re
 import hashlib
 import json
 import concurrent.futures
-from collections import deque
+from collections import deque, OrderedDict
 
 from PySide6.QtCore import QThread, Signal, QMutex, QWaitCondition, Qt, QBuffer, QByteArray
 from PySide6.QtGui import QImage, QImageReader
@@ -45,12 +45,25 @@ class ImageLoader(QThread):
         self.mutex = QMutex()
         self.condition = QWaitCondition()
         self._is_running = True
+        
+        # [Cache] LRU Cache
+        self.cache = OrderedDict()
+        self.CACHE_SIZE = 5   # Only keep very recent history (Min capability for comparison)
 
     def load_image(self, path, target_width=None):
         with QMutexWithLocker(self.mutex):
-            self.clear_queue()
-            self.queue.append((path, target_width))
-            self.condition.wakeOne()
+             # Check cache first
+             if path in self.cache:
+                 self.cache.move_to_end(path) # Mark as recently used
+                 self.image_loaded.emit(path, self.cache[path])
+                 return
+        
+             if os.path.isdir(path):
+                 return # Skip directories
+
+             self.clear_queue()
+             self.queue.append((path, target_width))
+             self.condition.wakeOne()
             
     def clear_queue(self):
         self.queue.clear()
@@ -105,13 +118,28 @@ class ImageLoader(QThread):
                             
                             loaded = reader.read()
                             if not loaded.isNull():
-                                image = loaded
-                                
+                                # [Optimization] Convert to RGB888 (24-bit) to save memory (vs 32-bit ARGB)
+                                # Unless it demands transparency, but for thumbnails usually opaque is fine.
+                                # If we want to be safe for PNGs with transparency, we might check hasAlphaChannel()
+                                if not loaded.hasAlphaChannel():
+                                     image = loaded.convertToFormat(QImage.Format_RGB888)
+                                else:
+                                     # Keep alpha but maybe optimize if needed (Format_ARGB32 is standard)
+                                     image = loaded
+                            
                             buffer.close()
                     except Exception as e:
                         print(f"Image load error: {e}")
 
                 self.image_loaded.emit(path, image)
+                
+                # Update Cache
+                with QMutexWithLocker(self.mutex):
+                    if not image.isNull():
+                        self.cache[path] = image
+                        self.cache.move_to_end(path)
+                        if len(self.cache) > self.CACHE_SIZE:
+                            self.cache.popitem(last=False)
 
 # ==========================================
 # Thumbnail Worker
