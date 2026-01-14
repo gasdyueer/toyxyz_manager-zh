@@ -40,8 +40,10 @@ class SmartMediaWidget(QWidget):
 
         self.lbl_image = QLabel("No Media")
         self.lbl_image.setAlignment(Qt.AlignCenter)
-        self.lbl_image.setStyleSheet("background-color: #222; color: #888; border-radius: 5px;")
-        self.lbl_image.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.lbl_image = QLabel("No Media")
+        self.lbl_image.setObjectName("media_label")
+        self.lbl_image.setAlignment(Qt.AlignCenter)
+        # self.lbl_image.setStyleSheet(...) -> Moved to QSS
         self._original_pixmap = None
         
         self.stack.addWidget(self.lbl_image)
@@ -57,7 +59,8 @@ class SmartMediaWidget(QWidget):
         if self.media_player: return
         
         self.video_widget = QVideoWidget()
-        self.video_widget.setStyleSheet("background-color: #000;")
+        self.video_widget = QVideoWidget()
+        # self.video_widget.setStyleSheet(...) -> Moved to QSS
         self.stack.addWidget(self.video_widget)
         
         self.media_player = QMediaPlayer()
@@ -429,11 +432,16 @@ class TaskMonitorWidget(QWidget):
         
         header_widget = QWidget()
         header_widget.setFixedHeight(30)
-        header_widget.setStyleSheet("background-color: #2b2b2b;") 
+        header_widget = QWidget()
+        header_widget.setObjectName("task_header")
+        header_widget.setFixedHeight(30)
+        # header_widget.setStyleSheet(...) -> Moved to QSS 
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(5, 0, 5, 0)
         self.lbl_title = QLabel("Queue & History")
-        self.lbl_title.setStyleSheet("font-weight: bold; color: #aaa;")
+        self.lbl_title = QLabel("Queue & History")
+        self.lbl_title.setObjectName("task_title")
+        # self.lbl_title.setStyleSheet(...) -> Moved to QSS
         
         # [수정] 버튼 스타일 개선 (글자색 흰색)
         self.btn_clear = QPushButton("Clear Done")
@@ -441,17 +449,13 @@ class TaskMonitorWidget(QWidget):
         self.btn_clear.clicked.connect(self.clear_finished_tasks) 
         self.btn_clear.setFixedWidth(80)
         self.btn_clear.setFixedHeight(22)
-        self.btn_clear.setStyleSheet("""
-            QPushButton {
-                font-size: 11px; 
-                color: white; 
-                background-color: #444; 
-                border: 1px solid #555;
-                border-radius: 3px;
-            }
-            QPushButton:hover { background-color: #555; }
-            QPushButton:pressed { background-color: #333; }
-        """)
+        self.btn_clear = QPushButton("Clear Done")
+        self.btn_clear.setObjectName("task_clear_btn")
+        self.btn_clear.setToolTip("Remove completed tasks from the list")
+        self.btn_clear.clicked.connect(self.clear_finished_tasks) 
+        self.btn_clear.setFixedWidth(80)
+        self.btn_clear.setFixedHeight(22)
+        # self.btn_clear.setStyleSheet(...) -> Moved to QSS
         
         header_layout.addWidget(self.lbl_title)
         header_layout.addStretch()
@@ -475,27 +479,9 @@ class TaskMonitorWidget(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
         
-        self.table.setStyleSheet("""
-            QTableWidget { 
-                border: none; 
-                background-color: #2b2b2b; 
-                color: #eee; 
-            }
-            QHeaderView {
-                background-color: #333;
-                border: none;
-            }
-            QHeaderView::section { 
-                background-color: #333; 
-                color: #bbb; 
-                border: none; 
-                padding: 2px; 
-            }
-            QTableCornerButton::section {
-                background-color: #333;
-                border: none;
-            }
-        """)
+        self.table.setShowGrid(False)
+        self.table.setObjectName("task_table")
+        # self.table.setStyleSheet(...) -> Moved to QSS
         self.layout.addWidget(self.table)
         self.row_map = {} 
         self.table.setVisible(True)

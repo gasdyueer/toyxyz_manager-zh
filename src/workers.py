@@ -48,7 +48,7 @@ class ImageLoader(QThread):
         
         # [Cache] LRU Cache
         self.cache = OrderedDict()
-        self.CACHE_SIZE = 5   # Only keep very recent history (Min capability for comparison)
+        self.CACHE_SIZE = 2   # Only keep very recent history (Min capability for comparison)
 
     def load_image(self, path, target_width=None):
         with QMutexWithLocker(self.mutex):
@@ -61,12 +61,18 @@ class ImageLoader(QThread):
              if os.path.isdir(path):
                  return # Skip directories
 
-             self.clear_queue()
+             self.queue.clear() # Already locked
              self.queue.append((path, target_width))
              self.condition.wakeOne()
             
     def clear_queue(self):
-        self.queue.clear()
+        with QMutexWithLocker(self.mutex):
+            self.queue.clear()
+
+    def remove_from_cache(self, path):
+        with QMutexWithLocker(self.mutex):
+             if path in self.cache:
+                 del self.cache[path]
 
     def stop(self):
         self._is_running = False

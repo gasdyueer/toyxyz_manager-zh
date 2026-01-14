@@ -73,14 +73,8 @@ class BaseManagerWidget(QWidget):
     def _init_base_ui(self):
         main_layout = QVBoxLayout(self)
         self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setStyleSheet("""
-            QSplitter::handle:horizontal {
-                width: 15px;
-            }
-            QSplitter::handle:vertical {
-                height: 15px;
-            }
-        """)
+        self.splitter = QSplitter(Qt.Horizontal)
+        # self.splitter.setStyleSheet(...) -> Moved to QSS
         
         # [Left Panel] 
         left_panel = QWidget()
@@ -121,16 +115,9 @@ class BaseManagerWidget(QWidget):
         self.tree.setColumnWidth(1, 70)  
         self.tree.setColumnWidth(2, 110) 
         self.tree.setColumnWidth(3, 70)
-        self.tree.setStyleSheet("""
-            QTreeWidget::item:selected:!focus {
-                background-color: #505050;
-                color: #e0e0e0;
-            }
-            QTreeWidget::item:selected:focus {
-                background-color: #2196F3;
-                color: white;
-            }
-        """)
+        self.tree.setColumnWidth(2, 110) 
+        self.tree.setColumnWidth(3, 70)
+        # self.tree.setStyleSheet(...) -> Moved to QSS
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self.on_tree_select)
         self.tree.itemExpanded.connect(self.on_tree_expand)
@@ -443,6 +430,11 @@ class BaseManagerWidget(QWidget):
             print(f"Cleanup error: {e}")
         
         is_video = (ext in VIDEO_EXTENSIONS)
+        
+        # [Fix] Invalidate cache for the target path to ensure UI updates
+        if hasattr(self, 'image_loader_thread'):
+            self.image_loader_thread.remove_from_cache(target_path)
+            
         self.thumb_worker = ThumbnailWorker(file_path, target_path, is_video)
         self.thumb_worker.finished.connect(self._on_thumb_worker_finished)
         self.thumb_worker.finished.connect(self.thumb_worker.deleteLater) # Cleanup thread

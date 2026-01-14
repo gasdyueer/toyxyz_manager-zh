@@ -120,10 +120,9 @@ class ModelManagerWindow(QMainWindow):
         
         # Tab Widget (Mode Switcher)
         self.mode_tabs = QTabWidget()
-        self.mode_tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid #444; }
-            QTabBar::tab { height: 30px; width: 100px; font-size: 12px; }
-        """)
+        # Tab Widget (Mode Switcher)
+        self.mode_tabs = QTabWidget()
+        # self.mode_tabs.setStyleSheet(...) -> Moved to QSS
         
         # Initialize Task Monitor (Global)
         self.task_monitor = TaskMonitorWidget()

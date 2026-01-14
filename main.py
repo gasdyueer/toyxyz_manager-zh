@@ -17,6 +17,11 @@ if __name__ == "__main__":
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 
+    # Apply Styles
+    from src.utils.style_manager import StyleManager
+    style_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "styles.qss")
+    StyleManager.apply_styles(app, style_path)
+
     import logging
     import traceback
 

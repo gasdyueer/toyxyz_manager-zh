@@ -21,8 +21,10 @@ from ..ui_components import (
     FileCollisionDialog, OverwriteConfirmDialog, ZoomWindow
 )
 from .example import ExampleTabWidget
-from ..workers import ImageLoader, ThumbnailWorker, MetadataWorker
+from .example import ExampleTabWidget
+from ..workers import ImageLoader, ThumbnailWorker # MetadataWorker removed
 from .download import DownloadController
+from ..controllers.metadata_controller import MetadataController
 
 try:
     from PIL import Image
@@ -56,14 +58,22 @@ class ModelManagerWidget(BaseManagerWidget):
         self.downl_controller.download_error.connect(self._on_download_error_controller)
         self.downl_controller.progress_updated.connect(lambda k, s, p: self.show_status_message(f"{s}: {p}%", 0))
         
+        # Metadata Controller
+        self.metadata_controller = MetadataController(app_settings, directories, self)
+        self.metadata_controller.status_message.connect(lambda msg, dur: self.show_status_message(msg, dur))
+        self.metadata_controller.task_progress.connect(self.task_monitor.update_task)
+        self.metadata_controller.batch_started.connect(lambda paths: self.task_monitor.add_tasks(paths, task_type="Auto Match"))
+        self.metadata_controller.model_processed.connect(self._on_model_processed)
+        self.metadata_controller.batch_processed.connect(self._on_batch_processed)
+        
     def set_directories(self, directories):
         # Filter directories for 'model' mode
         model_dirs = {k: v for k, v in directories.items() if v.get("mode", "model") == "model"}
         super().set_directories(model_dirs)
+        if self.directories:
+            self.metadata_controller.directories = directories
         if hasattr(self, 'tab_example'):
             self.tab_example.directories = directories
-        if getattr(self, 'worker', None):
-            self.worker.directories = directories
 
     def get_debug_info(self):
         info = super().get_debug_info()
@@ -77,7 +87,7 @@ class ModelManagerWidget(BaseManagerWidget):
             
         info.update({
             "download_queue_size": len(self.downl_controller.download_queue),
-            "metadata_queue_size": len(self.metadata_queue),
+            "metadata_queue_size": len(self.metadata_controller.queue),
             "video_player_active": (self.preview_lbl.media_player is not None),
             "video_player_state": player_state,
             "gc_counter": self._gc_counter,
@@ -221,25 +231,7 @@ class ModelManagerWidget(BaseManagerWidget):
     
     # save_note and handle_media_insert removed (using Base)
 
-    def _check_metadata_conflicts(self, targets):
-        """Checks if any target already has metadata (json/md/preview)."""
-        conflicts = []
-        from ..core import calculate_structure_path
-        
-        for path in targets:
-            cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
-            if not os.path.exists(cache_dir): continue
-            
-            # Check for JSON hash cache or MD note
-            name = os.path.splitext(os.path.basename(path))[0]
-            json_p = os.path.join(cache_dir, name + ".json")
-            md_p = os.path.join(cache_dir, name + ".md")
-            
-            # Also check for preview images? Maybe just JSON is enough indicator of "processed"
-            if os.path.exists(json_p) or os.path.exists(md_p):
-                conflicts.append(path)
-                
-        return conflicts
+    # _check_metadata_conflicts removed (Moved to Controller)
 
     def _save_json_direct(self, model_path, content):
         cache_dir = calculate_structure_path(model_path, self.get_cache_dir(), self.directories)
@@ -260,81 +252,9 @@ class ModelManagerWidget(BaseManagerWidget):
     def run_civitai(self, mode, targets=None, manual_url_override=None, overwrite_behavior_override=None):
         if targets is None:
             targets = self.selected_model_paths
-        if not targets: return
         
-        manual_url = None
-        if mode == "manual":
-            if manual_url_override:
-                manual_url = manual_url_override
-            else:
-                if len(targets) > 1:
-                    QMessageBox.warning(self, "Warning", "Manual mode supports only single file selection.")
-                    return
-                url, ok = QInputDialog.getText(self, "Manual URL", "Enter Civitai or HuggingFace Model URL:")
-                if not ok or not url: return
-                manual_url = url
-        
-        # [Overwrite Check]
-        final_targets = list(targets)
-        worker_overwrite = 'ask'
-        
-        # If override provided (from queue), skip check
-        if overwrite_behavior_override:
-            worker_overwrite = overwrite_behavior_override
-        else:
-            # First time check
-            conflicts = self._check_metadata_conflicts(targets)
-            if conflicts and not manual_url_override:
-                 reply = QMessageBox.question(self, "Metadata Exists", 
-                                              f"Found existing metadata for {len(conflicts)} files.\nOverwrite them?",
-                                              QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
-                 if reply == QMessageBox.Cancel:
-                     return
-                 elif reply == QMessageBox.No:
-                     final_targets = [t for t in targets if t not in conflicts]
-                     if not final_targets:
-                         self.show_status_message("All tasks skipped (Metadata exists).")
-                         return
-                 elif reply == QMessageBox.Yes:
-                     worker_overwrite = 'yes_all'
-
-        if not final_targets: return
-
-        if hasattr(self, 'worker') and self.worker is not None and self.worker.isRunning():
-            self.metadata_queue.append((mode, final_targets, manual_url, worker_overwrite))
-            self.show_status_message(f"Task queued. (Queue size: {len(self.metadata_queue)})")
-            return
-            
-        cache_dir = self.get_cache_dir()
-        self.worker = MetadataWorker(
-            mode, final_targets, manual_url, 
-            civitai_key=self.app_settings.get("civitai_api_key"),
-            hf_key=self.app_settings.get("hf_api_key"),
-            cache_root=cache_dir,
-            directories=self.directories,
-            overwrite_behavior=worker_overwrite
-        )
-        
-        # If we already filtered (No), existing ones are gone.
-        # If we said Yes (Overview), we want to force overwrite?
-        # MetadataWorker default behavior is to ask. 
-        # We can inject a pre-set decision into the worker?
-        # MetadataWorker logic: if _check_exists -> ask.
-        # We can set 'global_overwrite' logic or methods.
-        # Let's use `worker.set_overwrite_response('yes_all')` if we chose Yes.
-        
-        # Old hack removed. Overwrite decision is now passed to worker directly via overwrite_behavior.
-
-        self.worker.status_update.connect(lambda msg: self.show_status_message(msg, 0))
-        self.worker.batch_started.connect(lambda paths: self.task_monitor.add_tasks(paths, task_type="Auto Match"))
-        self.worker.task_progress.connect(self.task_monitor.update_task)
-        self.worker.model_processed.connect(self._on_model_processed)
-        self.worker.finished.connect(self._on_worker_finished)
-        self.worker.finished.connect(self.worker.deleteLater) # Cleanup thread
-        self.worker.finished.connect(self._cleanup_worker) # Remove reference
-        self.worker.ask_overwrite.connect(self.handle_overwrite_request)
-        
-        self.worker.start()
+        # Delegate to Controller
+        self.metadata_controller.run_civitai(mode, targets, manual_url_override, overwrite_behavior_override)
 
     def _on_model_processed(self, success, msg, data, model_path):
         if success:
@@ -345,7 +265,7 @@ class ModelManagerWidget(BaseManagerWidget):
                 self.tab_example.load_examples(model_path)
                 QTimer.singleShot(200, lambda: self._load_details(model_path))
 
-    def _on_worker_finished(self):
+    def _on_batch_processed(self):
         self.show_status_message("Batch Processed.")
         # Resume download queue if we were in a chain
         self.downl_controller.resume()
@@ -388,8 +308,8 @@ class ModelManagerWidget(BaseManagerWidget):
         if file_path and os.path.exists(file_path):
              self.show_status_message(f"Auto-matching for: {os.path.basename(file_path)}...")
              self.run_civitai("auto", targets=[file_path])
-             # Check if worker started (it might be busy)
-             if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+             # Check if controller accepted the task (worker running or queue not empty)
+             if self.metadata_controller.worker is not None or self.metadata_controller.queue:
                  chain_started = True
                  
         if not chain_started:
@@ -407,40 +327,28 @@ class ModelManagerWidget(BaseManagerWidget):
 
 
     def handle_overwrite_request(self, filename):
-        dlg = OverwriteConfirmDialog(filename, self)
-        dlg.exec()
-        self.worker.set_overwrite_response(dlg.result_value)
+        # NOT USED - Handled by MetadataController
+        pass
 
     def open_settings(self):
         # NOT USED HERE - handled by MainWindow
         pass
 
     def _cleanup_worker(self):
-        self.worker = None
-        if self.metadata_queue:
-            item = self.metadata_queue.pop(0)
-            if len(item) == 4:
-                mode, targets, manual_url, overwrite_beh = item
-            else:
-                mode, targets, manual_url = item
-                overwrite_beh = 'ask'
-                
-            self.show_status_message(f"Processing queued task... ({len(self.metadata_queue)} remaining)")
-            self.run_civitai(mode, targets, manual_url_override=manual_url, overwrite_behavior_override=overwrite_beh)
+        # NOT USED - Handled by MetadataController
+        pass
 
     # _save_note_direct removed (Inherited save_note_for_path used)
 
     def closeEvent(self, event):
-        self._cleanup_worker()
+        self.metadata_controller.stop()
         self.downl_controller.stop()
         
-        # Stop Metadata Worker
-        worker = getattr(self, 'worker', None)
-        if worker and worker.isRunning():
-            try:
-                worker.stop()
-                worker.wait(1000)
-            except RuntimeError:
-                pass # Already deleted
+        # [Memory] Explicit cleanup of media widgets
+        if hasattr(self, 'preview_lbl'):
+            self.preview_lbl.clear_memory()
+            
+        if hasattr(self, 'tab_example'):
+            self.tab_example.unload_current_examples()
             
         super().closeEvent(event)
