@@ -1,6 +1,6 @@
 PySide6
 requests
 Pillow
-opencv-python==4.11.0.86
+
 markdown
 markdownify

@@ -70,7 +70,7 @@ On first launch, click the **Settings** button to configure your directory paths
 ## 🏗️ Tech Stack
 
 - **GUI**: [PySide6](https://pypi.org/project/PySide6/) (Qt for Python)
-- **Image Processing**: [Pillow](https://python-pillow.org/), [OpenCV](https://opencv.org/)
+- **Image Processing**: [Pillow](https://python-pillow.org/)
 - **Core Logic**: Python Standard Library (`json`, `os`, `re`, `threading`)
 
 ## 📝 Metadata Handling Policy
