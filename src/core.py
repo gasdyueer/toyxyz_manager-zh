@@ -16,12 +16,7 @@ except ImportError:
     print("⚠️ Error: 'requests' library is missing. Run: pip install requests")
     sys.exit(1)
 
-HAS_OPENCV = False
-try:
-    import cv2
-    HAS_OPENCV = True
-except ImportError:
-    print("⚠️ Warning: opencv-python is missing. Video thumbnail extraction will be disabled.")
+
 
 HAS_PILLOW = False
 try:
@@ -86,24 +81,7 @@ class QMutexWithLocker:
 def sanitize_filename(filename):
     return re.sub(r'[<>:"/\\|?*]', '', filename).strip()
 
-def extract_video_frame(video_path, output_path):
-    """
-    OpenCV를 사용하여 비디오 프레임을 추출합니다.
-    """
-    if not HAS_OPENCV: return False
-    cap = None
-    try:
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened(): return False
-        ret, frame = cap.read()
-        if ret:
-            cv2.imwrite(output_path, frame)
-            return True
-    except Exception as e:
-        print(f"Frame extraction failed: {e}")
-    finally:
-        if cap: cap.release()
-    return False
+
 
 def calculate_structure_path(model_path: str, cache_root: str, directories: Dict[str, Any]) -> str:
     """

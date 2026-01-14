@@ -14,7 +14,7 @@ from PySide6.QtGui import QImage, QImageReader
 from .core import (
     QMutexWithLocker, 
     sanitize_filename, 
-    extract_video_frame, 
+ 
     calculate_structure_path,
     HAS_MARKDOWNIFY,
     SUPPORTED_EXTENSIONS,
@@ -136,14 +136,8 @@ class ThumbnailWorker(QThread):
         try:
             shutil.copy2(self.source_path, self.dest_path)
             if self.is_video:
-                base = os.path.splitext(self.dest_path)[0]
-                thumb_path = base + ".png"
-                if extract_video_frame(self.dest_path, thumb_path):
-                    self.finished.emit(True, "Video set & Thumbnail extracted.")
-                    return
-                else:
-                    self.finished.emit(True, "Video set (Thumbnail extraction failed).")
-                    return
+                self.finished.emit(True, "Video set.")
+                return
             self.finished.emit(True, "Thumbnail updated.")
         except Exception as e:
             self.finished.emit(False, str(e))
@@ -695,10 +689,7 @@ class MetadataWorker(QThread):
                 shutil.copy2(found_file, dest_path)
                 self.status_update.emit(f"Auto-set media: {os.path.basename(dest_path)}")
                 
-                if ext in VIDEO_EXTENSIONS:
-                    thumb_path = os.path.join(base_dir, model_name + ".png")
-                    if extract_video_frame(dest_path, thumb_path):
-                         self.status_update.emit(f"Extracted thumbnail: {os.path.basename(thumb_path)}")
+
 
         except Exception as e: print(f"Failed to auto-set thumbnail: {e}")
 
