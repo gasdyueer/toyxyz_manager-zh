@@ -119,7 +119,6 @@ class ModelManagerWindow(QMainWindow):
         layout.addLayout(header)
         
         # Tab Widget (Mode Switcher)
-        self.mode_tabs = QTabWidget()
         # Tab Widget (Mode Switcher)
         self.mode_tabs = QTabWidget()
         # self.mode_tabs.setStyleSheet(...) -> Moved to QSS

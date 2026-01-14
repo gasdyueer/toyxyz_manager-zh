@@ -15,6 +15,7 @@ from .core import (
     sanitize_filename, 
     calculate_structure_path,
     HAS_MARKDOWNIFY,
+    HAS_PILLOW, # Added
     SUPPORTED_EXTENSIONS,
     PREVIEW_EXTENSIONS,
     VIDEO_EXTENSIONS,
@@ -641,7 +642,37 @@ class MetadataWorker(QThread):
         def _download_single(url):
             if not self._is_running: return
             try:
-                self.net_client.download_file(url, preview_dir)
+                # [Fix] Force PNG for metadata support with PRESAVATION
+                fpath = self.net_client.download_file(url, preview_dir)
+                if fpath and HAS_PILLOW:
+                    base, ext = os.path.splitext(fpath)
+                    if ext.lower() != ".png":
+                        from PIL import Image
+                        from PIL.PngImagePlugin import PngInfo
+                        try:
+                            img = Image.open(fpath)
+                            img.load() # Load for info access
+                            
+                            # Prepare Metadata
+                            metadata = PngInfo()
+                            # Copy generic info
+                            for k, v in img.info.items():
+                                if k in ["exif", "icc_profile"]: continue
+                                if isinstance(v, str):
+                                    metadata.add_text(k, v)
+                                    
+                            save_kwargs = {"pnginfo": metadata}
+                            if "exif" in img.info: save_kwargs["exif"] = img.info["exif"]
+                            if "icc_profile" in img.info: save_kwargs["icc_profile"] = img.info["icc_profile"]
+                            
+                            new_path = base + ".png"
+                            img.save(new_path, "PNG", **save_kwargs)
+                            img.close()
+                            
+                            if os.path.exists(new_path):
+                                os.remove(fpath)
+                        except Exception as e:
+                            print(f"[AutoConvert] Failed to convert {os.path.basename(fpath)}: {e}")
             except Exception: pass
             
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:

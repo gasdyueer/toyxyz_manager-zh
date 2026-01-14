@@ -24,7 +24,6 @@ class ExampleTabWidget(QWidget):
         self.image_loader = image_loader
         self.current_item_path = None
         self.example_images = []
-        self.example_images = []
         self.current_example_idx = 0
         self._gc_counter = 0 # [Memory] Counter for periodic GC
         

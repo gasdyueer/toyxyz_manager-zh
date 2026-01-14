@@ -326,17 +326,7 @@ class ModelManagerWidget(BaseManagerWidget):
 
 
 
-    def handle_overwrite_request(self, filename):
-        # NOT USED - Handled by MetadataController
-        pass
 
-    def open_settings(self):
-        # NOT USED HERE - handled by MainWindow
-        pass
-
-    def _cleanup_worker(self):
-        # NOT USED - Handled by MetadataController
-        pass
 
     # _save_note_direct removed (Inherited save_note_for_path used)
 

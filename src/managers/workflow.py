@@ -28,10 +28,7 @@ except ImportError:
 class WorkflowManagerWidget(BaseManagerWidget):
     def __init__(self, directories, app_settings, task_monitor, parent_window=None):
         self.task_monitor = task_monitor
-        self.task_monitor = task_monitor
         self.parent_window = parent_window
-        # self.image_loader_thread = ImageLoader() # Moved to Base
-        # self.image_loader_thread.start()
         
         # Filter directories for 'workflow' mode
         wf_dirs = {k: v for k, v in directories.items() if v.get("mode") == "workflow"}

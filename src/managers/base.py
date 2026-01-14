@@ -115,8 +115,6 @@ class BaseManagerWidget(QWidget):
         self.tree.setColumnWidth(1, 70)  
         self.tree.setColumnWidth(2, 110) 
         self.tree.setColumnWidth(3, 70)
-        self.tree.setColumnWidth(2, 110) 
-        self.tree.setColumnWidth(3, 70)
         # self.tree.setStyleSheet(...) -> Moved to QSS
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self.on_tree_select)

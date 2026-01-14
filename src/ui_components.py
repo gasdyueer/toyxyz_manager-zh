@@ -59,7 +59,6 @@ class SmartMediaWidget(QWidget):
         if self.media_player: return
         
         self.video_widget = QVideoWidget()
-        self.video_widget = QVideoWidget()
         # self.video_widget.setStyleSheet(...) -> Moved to QSS
         self.stack.addWidget(self.video_widget)
         
