@@ -41,6 +41,9 @@ class WorkflowManagerWidget(BaseManagerWidget):
         if hasattr(self, 'tab_example'):
             self.tab_example.directories = directories
 
+    # [Fix] Override mode
+    def get_mode(self): return "workflow"
+
     def init_center_panel(self):
         self.info_labels = {}
         form_layout = QFormLayout()
@@ -49,6 +52,14 @@ class WorkflowManagerWidget(BaseManagerWidget):
             l.setWordWrap(True)
             self.info_labels[k] = l
             form_layout.addRow(f"{k}:", l)
+            
+        # [Duplicate Warning]
+        self.lbl_duplicate_warning = QLabel("")
+        self.lbl_duplicate_warning.setStyleSheet("color: red; font-weight: bold;")
+        self.lbl_duplicate_warning.setWordWrap(True)
+        self.lbl_duplicate_warning.hide()
+        form_layout.addRow(self.lbl_duplicate_warning)
+            
         self.center_layout.addLayout(form_layout)
         
         # Extended SmartMediaWidget for JSON Drag & Drop
@@ -91,15 +102,45 @@ class WorkflowManagerWidget(BaseManagerWidget):
         item = self.tree.currentItem()
         if not item: return
         
+        # [Memory] Fast cleanup
+        self.preview_lbl.clear_memory()
+        if hasattr(self, 'tab_example'):
+             self.tab_example.unload_current_examples()
+             
         path = item.data(0, Qt.UserRole)
         type_ = item.data(0, Qt.UserRole + 1)
         
         if type_ == "file" and path:
             self.current_path = path
             self._load_details(path)
+            
+            # [Duplicate Check]
+            f_name = os.path.basename(path).lower()
+            if hasattr(self, 'file_map'):
+                duplicates = self.file_map.get(f_name, [])
+                if len(duplicates) > 1:
+                    # Exclude current path from display
+                    curr_norm = os.path.normcase(os.path.abspath(self.current_path))
+                    other_paths = [p for p in duplicates if os.path.normcase(os.path.abspath(p)) != curr_norm]
+                    
+                    msg = f"⚠️ Duplicate Workflows Found ({len(duplicates)})"
+                    if other_paths:
+                        msg += "\n" + "\n".join(other_paths)
+
+                    tooltip = "Same filename detected in:\n" + "\n".join(duplicates)
+                    self.lbl_duplicate_warning.setText(msg)
+                    self.lbl_duplicate_warning.setToolTip(tooltip)
+                    self.lbl_duplicate_warning.show()
+                else:
+                    self.lbl_duplicate_warning.hide()
+            
             # Pass the JSON path to the draggable widget so it knows what to drag
             self.preview_lbl.set_json_path(path)
-
+            
+    def closeEvent(self, event):
+        if hasattr(self, 'preview_lbl'):
+             self.preview_lbl.clear_memory()
+        super().closeEvent(event)
     def _load_details(self, path):
         filename = os.path.basename(path)
         try:

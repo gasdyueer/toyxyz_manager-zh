@@ -75,6 +75,8 @@ class ModelManagerWidget(BaseManagerWidget):
         if hasattr(self, 'tab_example'):
             self.tab_example.directories = directories
 
+    def get_mode(self): return "model"
+
     def get_debug_info(self):
         info = super().get_debug_info()
         
@@ -103,6 +105,14 @@ class ModelManagerWidget(BaseManagerWidget):
             l.setWordWrap(True)
             self.info_labels[k] = l
             form_layout.addRow(f"{k}:", l)
+            
+        # [Duplicate Warning]
+        self.lbl_duplicate_warning = QLabel("")
+        self.lbl_duplicate_warning.setStyleSheet("color: red; font-weight: bold;")
+        self.lbl_duplicate_warning.setWordWrap(True)
+        self.lbl_duplicate_warning.hide()
+        form_layout.addRow(self.lbl_duplicate_warning)
+        
         self.center_layout.addLayout(form_layout)
         
         self.preview_lbl = SmartMediaWidget(loader=self.image_loader_thread)
@@ -178,6 +188,27 @@ class ModelManagerWidget(BaseManagerWidget):
             if type_ == "file" and path:
                  self.current_path = path # [Fix] Update current path tracker
                  self._load_details(path)
+                 
+                 # [Duplicate Check]
+                 f_name = os.path.basename(path).lower()
+                 if hasattr(self, 'file_map'):
+                     duplicates = self.file_map.get(f_name, [])
+                     if len(duplicates) > 1:
+                         # Exclude current path from display
+                         curr_norm = os.path.normcase(os.path.abspath(self.current_path))
+                         other_paths = [p for p in duplicates if os.path.normcase(os.path.abspath(p)) != curr_norm]
+                         
+                         msg = f"⚠️ Duplicate Models Found ({len(duplicates)})"
+                         if other_paths:
+                             msg += "\n" + "\n".join(other_paths)
+                             
+                         tooltip = "Same filename detected in:\n" + "\n".join(duplicates)
+                         self.lbl_duplicate_warning.setText(msg)
+                         self.lbl_duplicate_warning.setToolTip(tooltip)
+                         self.lbl_duplicate_warning.show()
+                     else:
+                         self.lbl_duplicate_warning.hide()
+                 
             elif type_ == "dict":
                  # Assuming self.lbl_info is a QLabel to display messages
                  # If not, this line might need adjustment based on actual UI
@@ -234,7 +265,8 @@ class ModelManagerWidget(BaseManagerWidget):
     # _check_metadata_conflicts removed (Moved to Controller)
 
     def _save_json_direct(self, model_path, content):
-        cache_dir = calculate_structure_path(model_path, self.get_cache_dir(), self.directories)
+        # [Fix] Added mode argument
+        cache_dir = calculate_structure_path(model_path, self.get_cache_dir(), self.directories, mode=self.get_mode())
         if not os.path.exists(cache_dir): os.makedirs(cache_dir)
         model_name = os.path.splitext(os.path.basename(model_path))[0]
         json_path = os.path.join(cache_dir, model_name + ".json")

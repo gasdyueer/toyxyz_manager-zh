@@ -42,6 +42,7 @@ class ImageLoader(QThread):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("ImageLoaderThread")
         self.queue = deque()
         self.mutex = QMutex()
         self.condition = QWaitCondition()
@@ -179,6 +180,7 @@ class FileScannerWorker(QThread):
 
     def __init__(self, base_path, extensions, recursive=True):
         super().__init__()
+        self.setObjectName("ScannerThread")
         self.base_path = base_path
         self.extensions = extensions
         self.recursive = recursive
@@ -244,6 +246,7 @@ class FileSearchWorker(QThread):
     
     def __init__(self, roots, query, extensions):
         super().__init__()
+        self.setObjectName("SearchThread")
         self.roots = roots if isinstance(roots, list) else [roots]
         self.query = query.lower()
         self.extensions = extensions
@@ -317,9 +320,13 @@ class MetadataWorker(QThread):
     model_processed = Signal(bool, str, dict, str) 
     ask_overwrite = Signal(str)
 
-    def __init__(self, mode="auto", targets=None, manual_url=None, civitai_key="", hf_key="", cache_root=None, directories=None, overwrite_behavior='ask'):
+    ask_overwrite = Signal(str)
+
+    # [Fix] Added cache_mode to distinguish content type (model, workflow, etc.)
+    def __init__(self, mode="auto", targets=None, manual_url=None, civitai_key="", hf_key="", cache_root=None, directories=None, overwrite_behavior='ask', cache_mode="model"):
         super().__init__()
         self.mode = mode 
+        self.cache_mode = cache_mode # Store the target content type
         self.targets = targets if targets else []
         self.manual_url = manual_url
         self.overwrite_behavior = overwrite_behavior
@@ -358,7 +365,8 @@ class MetadataWorker(QThread):
         self._wait_mutex.unlock()
 
     def _check_exists(self, model_path):
-        cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories)
+        # [Fix] Added mode argument
+        cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories, mode=self.cache_mode)
         if not os.path.exists(cache_dir): return False
         model_name = os.path.splitext(os.path.basename(model_path))[0]
         json_file = os.path.join(cache_dir, model_name + ".json")
@@ -526,7 +534,8 @@ class MetadataWorker(QThread):
             self.status_update.emit("Batch Cancelled.")
 
     def _get_cached_hash(self, model_path):
-        cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories)
+        # [Fix] Added mode argument
+        cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories, mode=self.cache_mode)
         if not os.path.exists(cache_dir): os.makedirs(cache_dir)
         model_name = os.path.splitext(os.path.basename(model_path))[0]
         json_path = os.path.join(cache_dir, model_name + ".json")
@@ -607,7 +616,8 @@ class MetadataWorker(QThread):
         return sha256.hexdigest().upper()
 
     def _process_embedded_images(self, text, model_path):
-        cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories)
+        # [Fix] Added mode argument
+        cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories, mode=self.cache_mode)
         embed_dir = os.path.join(cache_dir, "embedded")
         if not os.path.exists(embed_dir): os.makedirs(embed_dir)
         def replace_md(match):
@@ -636,7 +646,8 @@ class MetadataWorker(QThread):
         return text
 
     def _download_preview_images(self, urls, model_path):
-        cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories)
+        # [Fix] Added mode argument
+        cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories, mode=self.cache_mode)
         preview_dir = os.path.join(cache_dir, "preview")
         
         def _download_single(url):
@@ -691,7 +702,8 @@ class MetadataWorker(QThread):
                 if os.path.exists(os.path.join(base_dir, model_name + ext)):
                     return
 
-            cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories)
+            # [Fix] Added mode argument
+            cache_dir = calculate_structure_path(model_path, self.cache_root, self.directories, mode=self.cache_mode)
             cache_preview_dir = os.path.join(cache_dir, "preview")
             
             found_file = None

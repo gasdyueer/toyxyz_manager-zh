@@ -71,10 +71,14 @@ class SmartMediaWidget(QWidget):
         self.media_player.errorOccurred.connect(self._on_media_error)
 
     def _destroy_video_components(self):
+        # [Memory] Explicitly cleanup Qt Multimedia objects
         if self.media_player:
-            self.media_player.stop()
-            self.media_player.setSource(QUrl())
-            self.media_player.setVideoOutput(None)
+            try:
+                if self.media_player.playbackState() == QMediaPlayer.PlayingState:
+                    self.media_player.stop()
+                self.media_player.setSource(QUrl())
+                self.media_player.setVideoOutput(None)
+            except RuntimeError: pass # Object might be already deleted
             self.media_player.deleteLater()
             self.media_player = None
             
@@ -84,15 +88,21 @@ class SmartMediaWidget(QWidget):
             
         if self.video_widget:
             self.stack.removeWidget(self.video_widget)
-            self.video_widget.close() # Explicitly close native window
+            self.video_widget.setParent(None) # Important for full detachment
+            self.video_widget.close() 
             self.video_widget.deleteLater()
             self.video_widget = None
+
+    def closeEvent(self, event):
+        self.clear_memory()
+        super().closeEvent(event)
 
     def _stop_video_playback(self):
         """Stops playback and releases file lock without destroying components."""
         if self.media_player:
             self.media_player.stop()
             self.media_player.setSource(QUrl())
+
             # Do NOT detach video output here, to allow instant reuse.
 
     def set_media(self, path, target_width=1024):

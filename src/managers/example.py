@@ -239,6 +239,12 @@ class ExampleTabWidget(QWidget):
                 self._clear_meta()
                 self.lbl_wf_status.setText("Video")
 
+    def hideEvent(self, event):
+        # [Memory] Stop playback when tab is hidden
+        if self.lbl_img:
+            self.lbl_img._stop_video_playback()
+        super().hideEvent(event)
+
     def change_example(self, delta):
         if not self.example_images: return
         

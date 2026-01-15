@@ -78,35 +78,21 @@ class QMutexWithLocker:
 def sanitize_filename(filename):
     return re.sub(r'[<>:"/\\|?*]', '', filename).strip()
 
-def calculate_structure_path(model_path: str, cache_root: str, directories: Dict[str, Any]) -> str:
+def calculate_structure_path(model_path: str, cache_root: str, directories: Dict[str, Any], mode: str = "model") -> str:
     """
     Calculates the structured cache path.
-    directories value can be string (legacy) or dict (new).
+    New Strategy: Flat structure based on Mode and Filename.
+    Path: cache_root/<mode>/<model_name>
+    Directories argument is kept for signature compatibility but not strictly needed for flat structure logic,
+    unless we want to validate something.
     """
-    model_abs = os.path.abspath(model_path)
-    model_dir = os.path.dirname(model_abs)
     model_name = os.path.splitext(os.path.basename(model_path))[0]
     
-    root_alias = "Uncategorized"
-    rel_path = ""
+    # Sanitize mode just in case
+    safe_mode = sanitize_filename(mode)
+    if not safe_mode: safe_mode = "model"
     
-    for alias, data in directories.items():
-        if isinstance(data, dict):
-            root_path = data.get("path", "")
-        else:
-            root_path = str(data)
-            
-        root_abs = os.path.abspath(root_path)
-        if model_abs.startswith(root_abs):
-            root_alias = alias
-            try:
-                rel_path = os.path.relpath(model_dir, root_abs)
-                if rel_path == ".": rel_path = ""
-            except ValueError: 
-                rel_path = ""
-            break
-            
-    return os.path.join(cache_root, root_alias, rel_path, model_name)
+    return os.path.join(cache_root, safe_mode, model_name)
 
 # ==========================================
 # Config Management

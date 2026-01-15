@@ -54,11 +54,10 @@ class BaseManagerWidget(QWidget):
     def save_note_for_path(self, path, text, silent=False):
         if not path: return
         try:
-            cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
-            if not os.path.exists(cache_dir): os.makedirs(cache_dir)
-            
             filename = os.path.basename(path)
             model_name = os.path.splitext(filename)[0]
+            # [Fix] Added mode argument
+            cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories, mode=self.get_mode())
             md_path = os.path.join(cache_dir, model_name + ".md")
             
             with open(md_path, 'w', encoding='utf-8') as f:
@@ -146,6 +145,9 @@ class BaseManagerWidget(QWidget):
     def init_right_panel(self): pass
     def on_tree_select(self): pass
 
+    # Hook for getting current mode, defaulted to 'model' if not overridden
+    def get_mode(self): return "model"
+
     def set_directories(self, directories):
         """Updates the directories and refreshes the combo box."""
         self.directories = directories
@@ -172,20 +174,35 @@ class BaseManagerWidget(QWidget):
         # [Fix] Normalize path here to ensure consistency with worker and popup logic
         path = os.path.normpath(raw_path)
         
-        if hasattr(self, 'scanner'):
-            try:
-                if self.scanner.isRunning():
-                    self.scanner.stop()
-                    self.scanner.wait() 
-            except RuntimeError: pass
-            
+        if hasattr(self, 'indexing_scanner'):
+             try:
+                 if self.indexing_scanner.isRunning():
+                     self.indexing_scanner.stop()
+                     self.indexing_scanner.wait()
+             except RuntimeError: pass
+
         self.tree.clear()
         self.filter_edit.clear()
-        # Initial scan is non-recursive (Lazy Load)
+        
+        # [Duplicate Check] Initialize File Map
+        # Key: filename (lowercase), Value: list of full paths
+        self.file_map = {} 
+        
+        # [Thread Safety] Track active thumbnail workers
+        self.active_thumb_workers = set()
+        
+        # 1. UI Scanner (Fast, Non-Recursive)
         self.scanner = FileScannerWorker(path, self.extensions, recursive=False)
         self.scanner.batch_ready.connect(self._on_batch_ready)
-        self.scanner.finished.connect(self.scanner.deleteLater) # [Memory] Cleanup thread
+        self.scanner.finished.connect(self.scanner.deleteLater) 
         self.scanner.start()
+        
+        # 2. Indexing Scanner (Background, Recursive for full duplicate check)
+        self.indexing_scanner = FileScannerWorker(path, self.extensions, recursive=True)
+        self.indexing_scanner.setObjectName("IndexingScannerThread")
+        self.indexing_scanner.batch_ready.connect(self._on_indexing_batch_ready)
+        self.indexing_scanner.finished.connect(self.indexing_scanner.deleteLater)
+        self.indexing_scanner.start()
         
         # Disable Back button when in normal list view
         if hasattr(self, 'btn_search_back'):
@@ -250,6 +267,61 @@ class BaseManagerWidget(QWidget):
             f_item.setText(3, ext)
             f_item.setData(0, Qt.UserRole, f['path'])
             f_item.setData(0, Qt.UserRole + 1, "file")
+            
+            # [Duplicate Check] Update Global File Map (Initial visible items)
+            f_name_lower = f['name'].lower()
+            if f_name_lower not in self.file_map:
+                self.file_map[f_name_lower] = []
+            if f['path'] not in self.file_map[f_name_lower]:
+                self.file_map[f_name_lower].append(f['path'])
+
+    def _on_indexing_batch_ready(self, root, dirs, files):
+        """Background worker updates the file map for full duplicate detection."""
+        for f in files:
+            f_name_lower = f['name'].lower()
+            f_path = f['path']
+            
+            if f_name_lower not in self.file_map:
+                self.file_map[f_name_lower] = []
+            
+            if f_path not in self.file_map[f_name_lower]:
+                self.file_map[f_name_lower].append(f_path)
+        
+        # If currently selected item has duplicates, update warning immediately
+        if self.current_path:
+            cur_name = os.path.basename(self.current_path).lower()
+            if cur_name in self.file_map and len(self.file_map[cur_name]) > 1:
+                # Trigger re-selection logic to refresh warning
+                # We can call on_tree_select manually or just update warning if we refactor warning logic.
+                # For now, let's just re-simulate selection if it's the current item
+                # But on_tree_select expects an item.
+                # Simpler: Update the warning label directly if method exists (it's in subclass)
+                # Or verify if we can call something generic.
+                # Let's check subclasses... or just rely on user re-clicking? 
+                # Better: Emit a signal or call a refresh method.
+                self._refresh_duplicate_warning()
+
+    def _refresh_duplicate_warning(self):
+        # Subclasses can override or we implement generic if label is standard
+        # ModelManagerWidget has lbl_duplicate_warning
+        if hasattr(self, 'lbl_duplicate_warning') and self.current_path:
+             f_name = os.path.basename(self.current_path).lower()
+             duplicates = self.file_map.get(f_name, [])
+             if len(duplicates) > 1:
+                 # Exclude current path (More robust comparison)
+                 curr_norm = os.path.normcase(os.path.abspath(self.current_path))
+                 other_paths = [p for p in duplicates if os.path.normcase(os.path.abspath(p)) != curr_norm]
+                 
+                 msg = f"⚠️ Duplicate Found ({len(duplicates)})"
+                 if other_paths:
+                     msg += "\n" + "\n".join(other_paths)
+                 
+                 tooltip = "Same filename detected in:\n" + "\n".join(duplicates)
+                 self.lbl_duplicate_warning.setText(msg)
+                 self.lbl_duplicate_warning.setToolTip(tooltip)
+                 self.lbl_duplicate_warning.show()
+             else:
+                 self.lbl_duplicate_warning.hide()
 
     def on_tree_expand(self, item):
         # Check if it has a dummy child
@@ -435,8 +507,18 @@ class BaseManagerWidget(QWidget):
             
         self.thumb_worker = ThumbnailWorker(file_path, target_path, is_video)
         self.thumb_worker.finished.connect(self._on_thumb_worker_finished)
-        self.thumb_worker.finished.connect(self.thumb_worker.deleteLater) # Cleanup thread
+        
+        # [Thread Safety] Track worker
+        if not hasattr(self, 'active_thumb_workers'): self.active_thumb_workers = set()
+        self.active_thumb_workers.add(self.thumb_worker)
+        self.thumb_worker.finished.connect(lambda: self._cleanup_thumb_worker(self.thumb_worker))
+        
         self.thumb_worker.start()
+
+    def _cleanup_thumb_worker(self, worker):
+        if hasattr(self, 'active_thumb_workers') and worker in self.active_thumb_workers:
+            self.active_thumb_workers.discard(worker)
+        worker.deleteLater()
 
     def _on_thumb_worker_finished(self, success, msg):
         if hasattr(self, 'btn_replace'): self.btn_replace.setEnabled(True)
@@ -478,7 +560,8 @@ class BaseManagerWidget(QWidget):
         if not path: return
 
         filename = os.path.basename(path)
-        cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
+        # [Fix] Added mode argument
+        cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories, mode=self.get_mode())
         model_name = os.path.splitext(filename)[0]
         md_path = os.path.join(cache_dir, model_name + ".md")
         
@@ -523,7 +606,8 @@ class BaseManagerWidget(QWidget):
         
         if not target_relative_path: return None
         
-        cache_dir = calculate_structure_path(target_relative_path, self.get_cache_dir(), self.directories)
+        # [Fix] Added mode argument
+        cache_dir = calculate_structure_path(target_relative_path, self.get_cache_dir(), self.directories, mode=self.get_mode())
         if not os.path.exists(cache_dir): os.makedirs(cache_dir)
         
         name = os.path.basename(file_path)
@@ -553,7 +637,8 @@ class BaseManagerWidget(QWidget):
                 try:
                     if worker.isRunning():
                         worker.stop()
-                        worker.wait(500)
+                        if not worker.wait(2000): # Increased timeout
+                            print(f"Warning: Scanner thread {worker} did not stop in time.")
                 except RuntimeError:
                     pass # Already deleted
             self.active_scanners.clear()
@@ -563,7 +648,8 @@ class BaseManagerWidget(QWidget):
             try:
                 if self.scanner.isRunning():
                      self.scanner.stop()
-                     self.scanner.wait(500)
+                     if not self.scanner.wait(2000):
+                         print("Warning: Main scanner did not stop in time.")
             except RuntimeError: pass
 
         # Stop search worker
@@ -571,12 +657,34 @@ class BaseManagerWidget(QWidget):
             try:
                 if self.search_worker.isRunning():
                      self.search_worker.stop()
-                     self.search_worker.wait(500)
+                     if not self.search_worker.wait(2000):
+                         print("Warning: Search worker did not stop in time.")
+            except RuntimeError: pass
+
+        # Stop Indexing Scanner
+        if hasattr(self, 'indexing_scanner'):
+            try:
+                if self.indexing_scanner.isRunning():
+                    self.indexing_scanner.stop()
+                    if not self.indexing_scanner.wait(2000):
+                        print("Warning: Indexing scanner did not stop in time.")
             except RuntimeError: pass
              
-        # Stop thumb worker
         # Stop Image Loader
-        if hasattr(self, 'image_loader_thread') and self.image_loader_thread.isRunning():
-            self.image_loader_thread.stop()
-            self.image_loader_thread.wait(500)
+        if hasattr(self, 'image_loader_thread'):
+            if self.image_loader_thread.isRunning():
+                self.image_loader_thread.stop()
+                if not self.image_loader_thread.wait(2000):
+                     print("Warning: Image Loader did not stop in time.")
+
+        # [Thread Safety] Stop all active thumbnail workers
+        if hasattr(self, 'active_thumb_workers') and self.active_thumb_workers:
+            # print(f"[{self.get_mode()}] Waiting for {len(self.active_thumb_workers)} thumbnail workers...")
+            for worker in list(self.active_thumb_workers):
+                try:
+                    if worker.isRunning():
+                        worker.wait(1000)
+                except RuntimeError: pass
+            self.active_thumb_workers.clear()
+
 
