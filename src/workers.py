@@ -4,6 +4,7 @@ import shutil
 import re
 import hashlib
 import json
+import logging # [Infra] Added
 import concurrent.futures
 from collections import deque, OrderedDict
 
@@ -102,42 +103,40 @@ class ImageLoader(QThread):
                 t_start = time.time()
                 image = QImage()
                 if os.path.exists(path):
-                    # [Safety] Check file size before full read
-                    try:
-                        f_size = os.path.getsize(path)
-                        if f_size > 200 * 1024 * 1024:
-                             # Skip heavy image load
-                             pass
-                        else:
-                            with open(path, "rb") as f:
-                                raw_data = f.read()
-                            
-                            byte_array = QByteArray(raw_data)
-                            buffer = QBuffer(byte_array)
-                            buffer.open(QBuffer.ReadOnly)
-                            
-                            reader = QImageReader(buffer)
-                            reader.setAutoTransform(True)
-                            
-                            orig_size = reader.size()
-                            tw = target_width if target_width else 1024
-                            if orig_size.width() > tw or orig_size.height() > tw:
-                                reader.setScaledSize(orig_size.scaled(tw, tw, Qt.KeepAspectRatio))
-                            
-                            loaded = reader.read()
-                            if not loaded.isNull():
-                                # [Optimization] Convert to RGB888 (24-bit) to save memory (vs 32-bit ARGB)
-                                # Unless it demands transparency, but for thumbnails usually opaque is fine.
-                                # If we want to be safe for PNGs with transparency, we might check hasAlphaChannel()
-                                if not loaded.hasAlphaChannel():
-                                     image = loaded.convertToFormat(QImage.Format_RGB888)
-                                else:
-                                     # Keep alpha but maybe optimize if needed (Format_ARGB32 is standard)
-                                     image = loaded
-                            
-                            buffer.close()
-                    except Exception as e:
-                        print(f"Image load error: {e}")
+                    ext = os.path.splitext(path)[1].lower()
+                    if ext in {'.mp4', '.webm', '.mkv', '.avi', '.mov', '.gif'}:
+                        logging.debug(f"Skipping video in ImageLoader: {path}") # [Log]
+                    else:
+                        try:
+                            f_size = os.path.getsize(path)
+                            if f_size > 200 * 1024 * 1024:
+                                 logging.warning(f"Skipping large file ({f_size} bytes): {path}") # [Log]
+                            else:
+                                with open(path, "rb") as f:
+                                    raw_data = f.read()
+                                
+                                byte_array = QByteArray(raw_data)
+                                buffer = QBuffer(byte_array)
+                                buffer.open(QBuffer.ReadOnly)
+                                
+                                reader = QImageReader(buffer)
+                                reader.setAutoTransform(True)
+                                
+                                orig_size = reader.size()
+                                tw = target_width if target_width else 1024
+                                if orig_size.width() > tw or orig_size.height() > tw:
+                                    reader.setScaledSize(orig_size.scaled(tw, tw, Qt.KeepAspectRatio))
+                                
+                                loaded = reader.read()
+                                if not loaded.isNull():
+                                    if not loaded.hasAlphaChannel():
+                                         image = loaded.convertToFormat(QImage.Format_RGB888)
+                                    else:
+                                         image = loaded
+                                
+                                buffer.close()
+                        except Exception: 
+                            pass # Suppress generic load errors (e.g. non-image chunks)
 
                 self.image_loaded.emit(path, image)
                 
@@ -185,6 +184,7 @@ class FileScannerWorker(QThread):
         self.extensions = extensions
         self.recursive = recursive
         self._is_running = True
+        self.CHUNK_SIZE = 200 # [Optimization] Emit small batches to prevent UI freeze
 
     def stop(self):
         self._is_running = False
@@ -226,9 +226,16 @@ class FileScannerWorker(QThread):
                                          "size": sz, 
                                          "date": dt
                                      })
+                                     
+                                     # [Optimization] Chunk Emit
+                                     if len(files_buffer) >= self.CHUNK_SIZE:
+                                         self.batch_ready.emit(current_dir, [], files_buffer)
+                                         files_buffer = [] # Reset buffer
+
                                  except OSError: 
                                      pass
                     
+                    # Emit remaining items (and all dirs)
                     if dirs_buffer or files_buffer:
                          self.batch_ready.emit(current_dir, dirs_buffer, files_buffer)
             
@@ -522,7 +529,7 @@ class MetadataWorker(QThread):
                 success_count += 1
                 
             except Exception as e:
-                print(f"Error processing {model_path}: {e}")
+                logging.error(f"Error processing {model_path}: {e}") # [Log]
                 self.task_progress.emit(model_path, "Error", 0)
                 self.model_processed.emit(False, str(e), {}, model_path)
             
@@ -657,7 +664,8 @@ class MetadataWorker(QThread):
                 fpath = self.net_client.download_file(url, preview_dir)
                 if fpath and HAS_PILLOW:
                     base, ext = os.path.splitext(fpath)
-                    if ext.lower() != ".png":
+                    # [Fix] Skip video files for conversion
+                    if ext.lower() not in VIDEO_EXTENSIONS and ext.lower() != ".png":
                         from PIL import Image
                         from PIL.PngImagePlugin import PngInfo
                         try:
@@ -683,8 +691,8 @@ class MetadataWorker(QThread):
                             if os.path.exists(new_path):
                                 os.remove(fpath)
                         except Exception as e:
-                            print(f"[AutoConvert] Failed to convert {os.path.basename(fpath)}: {e}")
-            except Exception: pass
+                            logging.warning(f"[AutoConvert] Failed to convert {os.path.basename(fpath)}: {e}") # [Log]
+            except Exception as e: logging.error(f"Preview download error: {e}") # [Log]
             
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             for _ in executor.map(_download_single, urls):
@@ -858,7 +866,8 @@ class ModelDownloadWorker(QThread):
                     self.progress.emit(self.task_key, "Downloading", pct)
             
             final_path = self.net_client.download_file(
-                download_url, self.target_dir, filename=fname, progress_callback=progress_cb
+                download_url, self.target_dir, filename=fname, progress_callback=progress_cb,
+                stop_callback=lambda: not self._is_running
             )
             
             if final_path:
@@ -866,5 +875,8 @@ class ModelDownloadWorker(QThread):
             else:
                 self.error.emit("Download failed (No path returned)")
 
+        except InterruptedError:
+            self.finished.emit("Cancelled", "")
+            return
         except Exception as e:
             self.error.emit(str(e))

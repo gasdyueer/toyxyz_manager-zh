@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QLineEdit, QMessageBox, QAbstractItemView,
     QFileDialog, QApplication
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 
 from ..workers import FileScannerWorker, ThumbnailWorker, FileSearchWorker, ImageLoader
 from ..ui_components import ZoomWindow, MarkdownNoteWidget
@@ -203,6 +203,8 @@ class BaseManagerWidget(QWidget):
         self.indexing_scanner.batch_ready.connect(self._on_indexing_batch_ready)
         self.indexing_scanner.finished.connect(self.indexing_scanner.deleteLater)
         self.indexing_scanner.start()
+        # [Optimization] Low priority for background indexing to prevent UI jank
+        self.indexing_scanner.setPriority(QThread.LowPriority)
         
         # Disable Back button when in normal list view
         if hasattr(self, 'btn_search_back'):
@@ -631,60 +633,67 @@ class BaseManagerWidget(QWidget):
         super().closeEvent(event)
 
     def stop_all_workers(self):
-        # Stop scanners
+        """
+        [Optimization] Parallel shutdown sequence.
+        Phase 1: Signal all threads to stop.
+        Phase 2: Wait for threads with a global timeout.
+        """
+        workers = []
+
+        # Collect all active workers
         if hasattr(self, 'active_scanners'):
-            for worker in self.active_scanners:
-                try:
-                    if worker.isRunning():
-                        worker.stop()
-                        if not worker.wait(2000): # Increased timeout
-                            print(f"Warning: Scanner thread {worker} did not stop in time.")
-                except RuntimeError:
-                    pass # Already deleted
+            workers.extend([w for w in self.active_scanners if w.isRunning()])
             self.active_scanners.clear()
             
-        # Stop main scanner if running
-        if hasattr(self, 'scanner'):
-            try:
-                if self.scanner.isRunning():
-                     self.scanner.stop()
-                     if not self.scanner.wait(2000):
-                         print("Warning: Main scanner did not stop in time.")
-            except RuntimeError: pass
+        try:
+            if hasattr(self, 'scanner') and self.scanner and self.scanner.isRunning():
+                workers.append(self.scanner)
+        except RuntimeError: pass
 
-        # Stop search worker
-        if hasattr(self, 'search_worker'):
-            try:
-                if self.search_worker.isRunning():
-                     self.search_worker.stop()
-                     if not self.search_worker.wait(2000):
-                         print("Warning: Search worker did not stop in time.")
-            except RuntimeError: pass
+        try:
+            if hasattr(self, 'indexing_scanner') and self.indexing_scanner and self.indexing_scanner.isRunning():
+                workers.append(self.indexing_scanner)
+        except RuntimeError: pass
 
-        # Stop Indexing Scanner
-        if hasattr(self, 'indexing_scanner'):
-            try:
-                if self.indexing_scanner.isRunning():
-                    self.indexing_scanner.stop()
-                    if not self.indexing_scanner.wait(2000):
-                        print("Warning: Indexing scanner did not stop in time.")
-            except RuntimeError: pass
-             
-        # Stop Image Loader
-        if hasattr(self, 'image_loader_thread'):
-            if self.image_loader_thread.isRunning():
-                self.image_loader_thread.stop()
-                if not self.image_loader_thread.wait(2000):
-                     print("Warning: Image Loader did not stop in time.")
+        try:
+            if hasattr(self, 'search_worker') and self.search_worker and self.search_worker.isRunning():
+                workers.append(self.search_worker)
+        except RuntimeError: pass
 
-        # [Thread Safety] Stop all active thumbnail workers
-        if hasattr(self, 'active_thumb_workers') and self.active_thumb_workers:
-            # print(f"[{self.get_mode()}] Waiting for {len(self.active_thumb_workers)} thumbnail workers...")
-            for worker in list(self.active_thumb_workers):
-                try:
-                    if worker.isRunning():
-                        worker.wait(1000)
-                except RuntimeError: pass
+        try:
+            if hasattr(self, 'image_loader_thread') and self.image_loader_thread and self.image_loader_thread.isRunning():
+                 workers.append(self.image_loader_thread)
+        except RuntimeError: pass
+
+        # Collect thumbnail workers
+        thumb_workers = []
+        if hasattr(self, 'active_thumb_workers'):
+            thumb_workers = list(self.active_thumb_workers)
             self.active_thumb_workers.clear()
+
+        # Phase 1: Send Stop Signal (for those that support it)
+        for w in workers:
+            if hasattr(w, 'stop'):
+                w.stop()
+            # ThumbnailWorker doesn't have stop(), it just runs until completion (copy is blocking usually)
+        
+        # Phase 2: Wait with Global Timeout (e.g., 2.0 seconds total)
+        deadline = time.time() + 2.0
+        
+        # Wait for standard workers
+        for w in workers:
+            remaining = max(0.1, deadline - time.time())
+            try:
+                if w.isRunning():
+                    w.wait(int(remaining * 1000))
+            except RuntimeError: pass
+
+        # Wait for thumbnail workers
+        for w in thumb_workers:
+            remaining = max(0.1, deadline - time.time())
+            try:
+                if w.isRunning():
+                    w.wait(int(remaining * 1000))
+            except RuntimeError: pass
 
 

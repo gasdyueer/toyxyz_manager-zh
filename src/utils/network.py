@@ -2,6 +2,7 @@ import os
 import shutil
 import time
 import uuid
+import logging
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -54,7 +55,7 @@ class NetworkClient:
             # Caller handles exceptions (logging/UI update)
             raise e
 
-    def download_file(self, url, dest_dir, filename=None, progress_callback=None):
+    def download_file(self, url, dest_dir, filename=None, progress_callback=None, stop_callback=None):
         """
         Downloads a file safely using a temporary file and atomic rename.
         
@@ -63,6 +64,7 @@ class NetworkClient:
             dest_dir (str): Destination directory
             filename (str, optional): Target filename. If None, derived from URL or Content-Disposition.
             progress_callback (callable, optional): function(downloaded_bytes, total_bytes)
+            stop_callback (callable, optional): function returning True if download should stop
             
         Returns:
             str: Absolute path to the downloaded file, or None on failure.
@@ -101,6 +103,10 @@ class NetworkClient:
                 
                 with open(temp_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
+                        # [Safety] Check for external stop signal
+                        if stop_callback and stop_callback():
+                             raise InterruptedError("Download interrupted by user")
+
                         if chunk:
                             f.write(chunk)
                             downloaded += len(chunk)
@@ -109,15 +115,21 @@ class NetworkClient:
                                 
                 # Atomic Move
                 if os.path.exists(target_path):
-                    os.remove(target_path) # Overwrite intention?
-                    # If we want collision handling, caller should have checked before calling download_file.
-                    # This function assumes "Do it".
-                    
+                    try:
+                        os.remove(target_path) # Overwrite intention?
+                    except OSError:
+                        # [Fix] Create unique name if file is locked (e.g. video playing)
+                        # OR just skip overwrite and use existing file?
+                        # Skipping is better for cache efficiency.
+                        logging.warning(f"[NetworkClient] File locked (in use), skipping overwrite: {filename}")
+                        if os.path.exists(temp_path): os.remove(temp_path)
+                        return target_path
+
                 shutil.move(temp_path, target_path)
                 return target_path
 
         except Exception as e:
-            print(f"[NetworkClient] Download failed: {e}")
+            logging.error(f"[NetworkClient] Download failed: {e}")
             if 'temp_path' in locals() and os.path.exists(temp_path):
                 os.remove(temp_path)
             raise e

@@ -75,6 +75,16 @@ class ModelManagerWidget(BaseManagerWidget):
         if hasattr(self, 'tab_example'):
             self.tab_example.directories = directories
 
+    def stop_all_workers(self):
+        # Stop Controllers first
+        if hasattr(self, 'downl_controller'):
+             self.downl_controller.stop()
+        if hasattr(self, 'metadata_controller'):
+             self.metadata_controller.stop()
+        
+        # Stop Base workers
+        super().stop_all_workers()
+
     def get_mode(self): return "model"
 
     def get_debug_info(self):

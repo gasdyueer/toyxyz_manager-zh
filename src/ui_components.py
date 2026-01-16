@@ -184,6 +184,15 @@ class SmartMediaWidget(QWidget):
     def _load_image_sync(self, path, target_width=1024):
         # Synchrnous loading using QImageReader
         try:
+            if not os.path.exists(path):
+                self.lbl_image.setText("File not found")
+                return
+
+            # [Safety] Prevent freezing on large files (> 100MB)
+            if os.path.getsize(path) > 100 * 1024 * 1024:
+                self.lbl_image.setText("File too large")
+                return
+
             # [Fix] Read file to memory first to release file handle immediately
             # This is important for delete/rename operations
             with open(path, "rb") as f:

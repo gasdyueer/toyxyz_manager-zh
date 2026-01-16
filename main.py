@@ -1,5 +1,24 @@
 import sys
+import logging
 import os
+from datetime import datetime
+
+# [Infra] Setup Logging
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
+
+log_file = os.path.join(LOG_DIR, "app.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] [%(levelname)s] [%(module)s] %(message)s",
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+# ... PySide6 imports ...
 
 # Suppress verbose FFmpeg/Qt logs
 os.environ["QT_LOGGING_RULES"] = "qt.multimedia*=false"
