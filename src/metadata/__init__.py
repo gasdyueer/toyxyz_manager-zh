@@ -27,56 +27,9 @@ def validate_metadata_type(img):
                 return "comfy"
             except: pass
 
-        # A1111 / WebUI
-        if "parameters" in img.info and isinstance(img.info["parameters"], str) and img.info["parameters"].strip():
+        if extract_webui_parameters(img):
             return "webui"
-
-        # 2. Check Exif (UserComment)
-        if hasattr(img, "_getexif"):
-            exif_data = img._getexif()
-            if exif_data:
-                # 37510 = 0x9286 = UserComment
-                user_comment = exif_data.get(37510)
-                if user_comment:
-                    payload = user_comment
-                    # Strip header if present
-                    if isinstance(user_comment, bytes):
-                        if user_comment.startswith(b'UNICODE\0'):
-                            payload = user_comment[8:]
-                        elif user_comment.startswith(b'ASCII\0\0\0'):
-                            payload = user_comment[8:]
-                        
-                        # Try decoding
-                        candidates = []
-                        for enc in ['utf-8', 'utf-16le', 'utf-16be']:
-                            try:
-                                decoded = payload.decode(enc)
-                                if decoded.strip(): candidates.append(decoded)
-                            except: pass
-                        
-                        if candidates:
-                            for cand in candidates:
-                                s = cand.strip()
-                                # Check for ComfyUI JSON
-                                if s.startswith("{"):
-                                    try:
-                                        data = json.loads(s)
-                                        if isinstance(data, dict): return "comfy"
-                                    except: pass
-                                
-                                # Check for A1111 Parameters
-                                if "Steps:" in s and "Sampler:" in s:
-                                    return "webui"
-                    
-                    elif isinstance(user_comment, str):
-                        s = user_comment.strip()
-                        if s.startswith("{"):
-                            try:
-                                data = json.loads(s)
-                                if isinstance(data, dict): return "comfy"
-                            except: pass
-                        if "Steps:" in s and "Sampler:" in s:
-                            return "webui"
+        
     except Exception:
         pass
         
@@ -182,7 +135,40 @@ def standardize_metadata(img) -> Dict[str, Any]:
     raw_params = extract_webui_parameters(img)
     
     if raw_params and res["type"] == "unknown":
-         res["type"] = "a1111"
+         # Check if it's JSON (SimpAI or others)
+         try:
+             if raw_params.strip().startswith("{"):
+                 data = json.loads(raw_params)
+                 res["type"] = "simpai" # Generic JSON type
+                 
+                 # Map Known Fields (SimpAI)
+                 res["main"]["steps"] = data.get("Steps")
+                 res["main"]["seed"] = data.get("Seed")
+                 res["main"]["cfg"] = data.get("Guidance Scale") or data.get("Guidance") or data.get("ADM Guidance")
+                 res["main"]["sampler"] = data.get("Sampler")
+                 res["main"]["schedule"] = data.get("Scheduler")
+                 
+                 res["model"]["checkpoint"] = data.get("Base Model")
+                 
+                 # Prompts
+                 res["prompts"]["positive"] = data.get("Prompt") or data.get("Full Prompt", "")
+                 res["prompts"]["negative"] = data.get("Negative Prompt") or data.get("Full Negative Prompt", "")
+                 
+                 # Handle list prompts if occurred
+                 if isinstance(res["prompts"]["positive"], list): 
+                     res["prompts"]["positive"] = ", ".join([str(x) for x in res["prompts"]["positive"]])
+                 if isinstance(res["prompts"]["negative"], list): 
+                     res["prompts"]["negative"] = ", ".join([str(x) for x in res["prompts"]["negative"]])
+                 
+                 # Map all to ETC for safety
+                 exclude = ["Steps", "Seed", "Base Model", "Guidance Scale", "Sampler", "Scheduler", "Prompt", "Negative Prompt"]
+                 for k, v in data.items():
+                     if k not in exclude:
+                         res["etc"][k] = v
+             else:
+                 res["type"] = "a1111"
+         except:
+             res["type"] = "a1111"
          
     res["raw_text"] = raw_params
     return res

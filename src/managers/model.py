@@ -3,6 +3,8 @@ import shutil
 import json
 import re
 import time
+import gc
+import logging
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QTextEdit, 
     QFormLayout, QGridLayout, QTabWidget, QStackedWidget, QMessageBox, QGroupBox, QLineEdit, QFileDialog, QInputDialog,
@@ -21,8 +23,7 @@ from ..ui_components import (
     FileCollisionDialog, OverwriteConfirmDialog, ZoomWindow
 )
 from .example import ExampleTabWidget
-from .example import ExampleTabWidget
-from ..workers import ImageLoader, ThumbnailWorker # MetadataWorker removed
+from ..workers import ImageLoader
 from .download import DownloadController
 from ..controllers.metadata_controller import MetadataController
 
@@ -40,8 +41,6 @@ class ModelManagerWidget(BaseManagerWidget):
     def __init__(self, directories, app_settings, task_monitor, parent_window=None):
         self.task_monitor = task_monitor
         self.parent_window = parent_window
-        self.last_download_dir = None
-        
         self.last_download_dir = None
 
         # Filter directories for 'model' mode
@@ -108,24 +107,14 @@ class ModelManagerWidget(BaseManagerWidget):
         return info
 
     def init_center_panel(self):
-        self.info_labels = {}
-        form_layout = QFormLayout()
-        for k in ["Name", "Ext", "Size", "Path", "Date"]:
-            l = QLabel("-")
-            l.setWordWrap(True)
-            self.info_labels[k] = l
-            form_layout.addRow(f"{k}:", l)
-            
-        # [Duplicate Warning]
-        self.lbl_duplicate_warning = QLabel("")
-        self.lbl_duplicate_warning.setStyleSheet("color: red; font-weight: bold;")
-        self.lbl_duplicate_warning.setWordWrap(True)
-        self.lbl_duplicate_warning.hide()
-        form_layout.addRow(self.lbl_duplicate_warning)
+
+        # [Refactor] Use shared setup
+        self._setup_info_panel(["Ext"])
         
-        self.center_layout.addLayout(form_layout)
+        self.center_layout.addLayout(QFormLayout()) # Dummy for alignment if needed? No, _setup_info_panel already adds logic.
+        # Wait, _setup_info_panel added layout to center_layout. So I don't need dummy.
         
-        self.preview_lbl = SmartMediaWidget(loader=self.image_loader_thread)
+        self.preview_lbl = SmartMediaWidget(loader=self.image_loader_thread, player_type="preview")
         self.preview_lbl.setMinimumSize(100, 100) 
         self.preview_lbl.clicked.connect(self.on_preview_click)
         self.center_layout.addWidget(self.preview_lbl, 1)
@@ -192,32 +181,13 @@ class ModelManagerWidget(BaseManagerWidget):
             self.preview_lbl.clear_memory()
             self.tab_example.unload_current_examples()
             
-            import gc
             gc.collect() # Force immediate release (User request)
             
             if type_ == "file" and path:
                  self.current_path = path # [Fix] Update current path tracker
                  self._load_details(path)
                  
-                 # [Duplicate Check]
-                 f_name = os.path.basename(path).lower()
-                 if hasattr(self, 'file_map'):
-                     duplicates = self.file_map.get(f_name, [])
-                     if len(duplicates) > 1:
-                         # Exclude current path from display
-                         curr_norm = os.path.normcase(os.path.abspath(self.current_path))
-                         other_paths = [p for p in duplicates if os.path.normcase(os.path.abspath(p)) != curr_norm]
-                         
-                         msg = f"⚠️ Duplicate Models Found ({len(duplicates)})"
-                         if other_paths:
-                             msg += "\n" + "\n".join(other_paths)
-                             
-                         tooltip = "Same filename detected in:\n" + "\n".join(duplicates)
-                         self.lbl_duplicate_warning.setText(msg)
-                         self.lbl_duplicate_warning.setToolTip(tooltip)
-                         self.lbl_duplicate_warning.show()
-                     else:
-                         self.lbl_duplicate_warning.hide()
+
                  
             elif type_ == "dict":
                  # Assuming self.lbl_info is a QLabel to display messages
@@ -239,28 +209,22 @@ class ModelManagerWidget(BaseManagerWidget):
                  self.tab_note.set_text("")
 
     def _load_details(self, path):
-        filename = os.path.basename(path)
+        # [Refactor] Use shared logic from BaseManagerWidget
+        filename, size_str, date_str, preview_path = self._load_common_file_details(path)
+        
+        # Update Info Labels
         ext = os.path.splitext(filename)[1]
-        try:
-            st = os.stat(path)
-            size_str = self.format_size(st.st_size)
-            date_str = self.format_date(st.st_mtime, seconds=True)
-        except (OSError, ValueError): size_str = "Unknown"; date_str = "Unknown"
         self.info_labels["Name"].setText(filename)
         self.info_labels["Ext"].setText(ext)
         self.info_labels["Size"].setText(size_str)
         self.info_labels["Date"].setText(date_str)
         self.info_labels["Path"].setText(path)
-        base = os.path.splitext(path)[0]
-        preview_path = None
-        for ext in PREVIEW_EXTENSIONS:
-            if os.path.exists(base + ext): preview_path = base + ext; break
+        
         self.preview_lbl.set_media(preview_path)
         
         # [Memory] Periodic GC for model browsing
         self._gc_counter += 1
-        if self._gc_counter >= 20: # Less frequent than examples as models are heavier to load structure? No, just heuristic.
-            import gc
+        if self._gc_counter >= 20: 
             gc.collect()
             self._gc_counter = 0
         
@@ -270,9 +234,9 @@ class ModelManagerWidget(BaseManagerWidget):
 
 
     
-    # save_note and handle_media_insert removed (using Base)
 
-    # _check_metadata_conflicts removed (Moved to Controller)
+
+
 
     def _save_json_direct(self, model_path, content):
         # [Fix] Added mode argument
@@ -286,7 +250,7 @@ class ModelManagerWidget(BaseManagerWidget):
                 with open(json_path, 'r', encoding='utf-8') as f: data = json.load(f)
             data["user_note"] = content
             with open(json_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4, ensure_ascii=False)
-        except Exception as e: print(f"Save Error: {e}")
+        except Exception as e: logging.error(f"Save Error: {e}")
 
 
 
@@ -370,7 +334,7 @@ class ModelManagerWidget(BaseManagerWidget):
 
 
 
-    # _save_note_direct removed (Inherited save_note_for_path used)
+
 
     def closeEvent(self, event):
         self.metadata_controller.stop()

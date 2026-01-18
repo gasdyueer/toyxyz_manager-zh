@@ -1,5 +1,6 @@
 # User requested ignores
 cache/
+logs/
 manager_config.json
 debug.log
 

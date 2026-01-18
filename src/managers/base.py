@@ -1,18 +1,21 @@
 import os
 import time
+import logging
 from typing import Dict, Any
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem, 
     QLabel, QPushButton, QComboBox, QLineEdit, QMessageBox, QAbstractItemView,
-    QFileDialog, QApplication
+    QFileDialog, QApplication, QFormLayout
 )
 from PySide6.QtCore import Qt, QThread
 
 from ..workers import FileScannerWorker, ThumbnailWorker, FileSearchWorker, ImageLoader
 from ..ui_components import ZoomWindow, MarkdownNoteWidget
 from .example import ExampleTabWidget
-from ..core import VIDEO_EXTENSIONS, calculate_structure_path
+from ..ui_components import ZoomWindow, MarkdownNoteWidget
+from .example import ExampleTabWidget
+from ..core import VIDEO_EXTENSIONS, PREVIEW_EXTENSIONS, calculate_structure_path
 
 class BaseManagerWidget(QWidget):
     def __init__(self, directories: Dict[str, Any], extensions, app_settings: Dict[str, Any] = None):
@@ -22,7 +25,6 @@ class BaseManagerWidget(QWidget):
         self.app_settings = app_settings or {}
         self.current_path = None
         self.active_scanners = []
-        self.image_loader_thread = ImageLoader()
         self.image_loader_thread = ImageLoader()
         self.image_loader_thread.start()
         self._init_base_ui()
@@ -60,18 +62,21 @@ class BaseManagerWidget(QWidget):
             cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories, mode=self.get_mode())
             md_path = os.path.join(cache_dir, model_name + ".md")
             
+            # [FIX] Create directory if it doesn't exist
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir, exist_ok=True)
+            
             with open(md_path, 'w', encoding='utf-8') as f:
                 f.write(text)
                 
             if not silent:
                 self.show_status_message("Note saved (.md).")
         except Exception as e: 
-            print(f"Save Error: {e}")
+            logging.error(f"Save Error: {e}")
             self.show_status_message(f"Save Failed: {e}")
 
     def _init_base_ui(self):
         main_layout = QVBoxLayout(self)
-        self.splitter = QSplitter(Qt.Horizontal)
         self.splitter = QSplitter(Qt.Horizontal)
         # self.splitter.setStyleSheet(...) -> Moved to QSS
         
@@ -144,6 +149,31 @@ class BaseManagerWidget(QWidget):
     def init_center_panel(self): pass
     def init_right_panel(self): pass
     def on_tree_select(self): pass
+    
+    def _setup_info_panel(self, extra_fields: list = None):
+        """Helper to create standard info panel (Name, Size, Path, Date + Extras)."""
+        extra_fields = extra_fields or []
+        # Standard fields: Name is always first. Size, Path, Date are always last.
+        # Extras inserted in between.
+        target_fields = ["Name"] + extra_fields + ["Size", "Path", "Date"]
+        
+        self.info_labels = {}
+        form_layout = QFormLayout()
+        
+        for k in target_fields:
+            l = QLabel("-")
+            l.setWordWrap(True)
+            self.info_labels[k] = l
+            form_layout.addRow(f"{k}:", l)
+            
+        # Duplicate Warning
+        self.lbl_duplicate_warning = QLabel("")
+        self.lbl_duplicate_warning.setStyleSheet("color: red; font-weight: bold;")
+        self.lbl_duplicate_warning.setWordWrap(True)
+        self.lbl_duplicate_warning.hide()
+        form_layout.addRow(self.lbl_duplicate_warning)
+        
+        self.center_layout.addLayout(form_layout)
 
     # Hook for getting current mode, defaulted to 'model' if not overridden
     def get_mode(self): return "model"
@@ -407,9 +437,10 @@ class BaseManagerWidget(QWidget):
             return
             
         # [Safety] Cap results to prevent UI freeze
-        if len(results) > 2000:
+        total_found = len(results)
+        if total_found > 2000:
             results = results[:2000]
-            self.show_status_message(f"Search results capped to 2000 items (found {len(results)})")
+            self.show_status_message(f"Search results capped to 2000 items (found {total_found})")
 
         # Sort by name
         results.sort(key=lambda x: os.path.basename(x[0]).lower())
@@ -453,7 +484,7 @@ class BaseManagerWidget(QWidget):
         if hasattr(self, 'parent_window') and self.parent_window:
             self.parent_window.statusBar().showMessage(msg, duration)
         else:
-            print(f"[Status] {msg}")
+            logging.info(f"[Status] {msg}")
 
     def get_cache_dir(self):
         # Allow app_settings to define cache path, or fallback to default
@@ -499,7 +530,7 @@ class BaseManagerWidget(QWidget):
                     try: os.remove(p_path)
                     except OSError: pass
         except Exception as e:
-            print(f"Cleanup error: {e}")
+            logging.warning(f"Cleanup error: {e}")
         
         is_video = (ext in VIDEO_EXTENSIONS)
         
@@ -551,7 +582,9 @@ class BaseManagerWidget(QWidget):
         self.tabs.addTab(self.tab_note, "Note")
         
         # Tab 2: Example
-        self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread)
+        # Tab 2: Example
+        # [Refactor] Pass cache_root explicitely
+        self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread, cache_root=self.get_cache_dir())
         self.tab_example.status_message.connect(self.show_status_message)
         self.tabs.addTab(self.tab_example, "Example")
         
@@ -670,6 +703,14 @@ class BaseManagerWidget(QWidget):
         if hasattr(self, 'active_thumb_workers'):
             thumb_workers = list(self.active_thumb_workers)
             self.active_thumb_workers.clear()
+        
+        # [NEW] Collect LocalMetadataWorker from ExampleTabWidget
+        if hasattr(self, 'tab_example') and hasattr(self.tab_example, 'metadata_worker'):
+            try:
+                if self.tab_example.metadata_worker and self.tab_example.metadata_worker.isRunning():
+                    workers.append(self.tab_example.metadata_worker)
+            except RuntimeError:
+                pass
 
         # Phase 1: Send Stop Signal (for those that support it)
         for w in workers:
@@ -696,4 +737,80 @@ class BaseManagerWidget(QWidget):
                     w.wait(int(remaining * 1000))
             except RuntimeError: pass
 
+    # [Memory Optimization] Tab Visibility Hooks
+    def on_tab_hidden(self):
+        """Called when this manager tab is hidden (user switched to another tab)."""
+        import logging
+        logger = logging.getLogger("managers.base")
+        logger.debug(f"[BaseManager] Tab hidden: {self.__class__.__name__}")
+        
+        # Release preview player resources
+        if hasattr(self, 'preview_lbl') and hasattr(self.preview_lbl, 'release_resources'):
+            self.preview_lbl.release_resources()
+            
+        # Stop example videos
+        if hasattr(self, 'tab_example') and hasattr(self.tab_example, 'stop_videos'):
+            self.tab_example.stop_videos()
 
+    def on_tab_shown(self):
+        """Called when this manager tab is shown."""
+        # Optional: Restore resources if needed, but lazy loading usually handles it
+        pass
+
+    def cleanup(self):
+        """Called on app exit"""
+        self.stop_all_workers()
+        # Ensure we also release video resources on exit
+        self.on_tab_hidden()
+
+
+
+    def _load_common_file_details(self, path):
+        """
+        Refactored common logic for loading file details.
+        Returns: (filename, size_str, date_str, preview_path)
+        """
+        filename = os.path.basename(path)
+        
+        # [Log] Debug
+        logging.debug(f"[_load_common_file_details] Loading details for: {path}")
+
+        try:
+            st = os.stat(path)
+            size_str = self.format_size(st.st_size)
+            date_str = self.format_date(st.st_mtime, seconds=True)
+        except (OSError, ValueError) as e:
+            logging.error(f"Failed to stat file {path}: {e}")
+            size_str = "Error"
+            date_str = "Error"
+            
+        # Duplicate Check
+        if hasattr(self, 'file_map') and self.lbl_duplicate_warning:
+            f_name_lower = filename.lower()
+            duplicates = self.file_map.get(f_name_lower, [])
+            if len(duplicates) > 1:
+                 logging.debug(f"[Duplicate] Found {len(duplicates)} duplicates for {filename}")
+                 # Exclude current path from display
+                 curr_norm = os.path.normcase(os.path.abspath(path))
+                 other_paths = [p for p in duplicates if os.path.normcase(os.path.abspath(p)) != curr_norm]
+                 
+                 msg = f"⚠️ Duplicate Files Found ({len(duplicates)})"
+                 if other_paths:
+                     msg += "\n" + "\n".join(other_paths)
+
+                 tooltip = "Same filename detected in:\n" + "\n".join(duplicates)
+                 self.lbl_duplicate_warning.setText(msg)
+                 self.lbl_duplicate_warning.setToolTip(tooltip)
+                 self.lbl_duplicate_warning.show()
+            else:
+                 self.lbl_duplicate_warning.hide()
+
+        # Find Thumbnail Common Logic
+        base = os.path.splitext(path)[0]
+        preview_path = None
+        for ext in PREVIEW_EXTENSIONS:
+            if os.path.exists(base + ext):
+                preview_path = base + ext
+                break
+        
+        return filename, size_str, date_str, preview_path

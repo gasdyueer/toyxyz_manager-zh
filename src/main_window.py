@@ -1,5 +1,6 @@
 import os
 import sys
+import gc
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -39,7 +40,7 @@ class ModelManagerWindow(QMainWindow):
             self.debug_timer.start(3000) # 3 seconds
 
     def _print_debug_stats(self):
-        import os, gc, threading, logging
+        import threading, logging
         # [Win] Clear console
         os.system('cls' if os.name == 'nt' else 'clear')
         
@@ -99,6 +100,29 @@ class ModelManagerWindow(QMainWindow):
             info.append(f"\n[Workflow Manager]")
             info.append(f"  - Scanners: {w_stats['scanners_active']}")
             info.append(f"  - Loader Queue: {w_stats['loader_queue']}")
+        
+        # 3. Active Media Details
+        info.append(f"\n[Active Media]")
+        
+        # Collect from Model Manager
+        if hasattr(self, 'model_manager'):
+            # Preview image
+            if hasattr(self.model_manager, 'preview_lbl'):
+                media_info = self.model_manager.preview_lbl.get_media_info()
+                if media_info:
+                    info.append(f"  [Model Preview] {media_info['filename']}")
+                    info.append(f"    Type: {media_info['type']} | Size: {media_info['size_mb']:.2f}MB | Res: {media_info.get('resolution', 'N/A')}")
+                    if media_info['type'] == 'video':
+                        info.append(f"    Playing: {media_info.get('playing', False)} | Duration: {media_info.get('duration_sec', 0):.1f}s")
+            
+            # Example tab images
+            if hasattr(self.model_manager, 'tab_example'):
+                example_media = self.model_manager.tab_example.lbl_img.get_media_info()
+                if example_media:
+                    info.append(f"  [Example] {example_media['filename']}")
+                    info.append(f"    Type: {example_media['type']} | Size: {example_media['size_mb']:.2f}MB | Res: {example_media.get('resolution', 'N/A')}")
+                    if example_media['type'] == 'video':
+                        info.append(f"    Playing: {example_media.get('playing', False)} | Duration: {example_media.get('duration_sec', 0):.1f}s")
 
         print("\n".join(info))
         logging.info("\n" + "\n".join(info))
@@ -136,8 +160,26 @@ class ModelManagerWindow(QMainWindow):
         self.mode_tabs.addTab(self.prompt_manager, "Prompt")
         self.mode_tabs.addTab(self.task_monitor, "Tasks")
         
+        # [Video Memory Optimization] Handle tab switching
+        self.mode_tabs.currentChanged.connect(self._on_tab_changed)
+        
         layout.addWidget(self.mode_tabs)
         self.statusBar().showMessage("Ready")
+
+    def _on_tab_changed(self, index):
+        """Handle tab switching to release resources of hidden tabs."""
+        # Get current widget
+        current_widget = self.mode_tabs.widget(index)
+        
+        # Notify all managers about visibility change
+        for i in range(self.mode_tabs.count()):
+            widget = self.mode_tabs.widget(i)
+            if widget == current_widget:
+                if hasattr(widget, 'on_tab_shown'):
+                    widget.on_tab_shown()
+            else:
+                if hasattr(widget, 'on_tab_hidden'):
+                    widget.on_tab_hidden()
 
     def load_config_data(self):
         data = load_config()

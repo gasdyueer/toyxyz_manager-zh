@@ -3,6 +3,7 @@ import os
 import json
 import gzip
 import re
+import logging
 from typing import Dict, Any, Optional
 
 from PySide6.QtCore import QMutex
@@ -13,7 +14,7 @@ from PySide6.QtCore import QMutex
 try:
     import requests
 except ImportError:
-    print("⚠️ Error: 'requests' library is missing. Run: pip install requests")
+    logging.critical("'requests' library is missing. Run: pip install requests")
     sys.exit(1)
 
 HAS_PILLOW = False
@@ -22,7 +23,7 @@ try:
     from PIL.PngImagePlugin import PngInfo
     HAS_PILLOW = True
 except ImportError:
-    print("⚠️ Warning: Pillow library is missing. pip install pillow")
+    logging.warning("Pillow library is missing. pip install pillow")
 
 HAS_MARKDOWN = False
 try:
@@ -57,9 +58,12 @@ SUPPORTED_EXTENSIONS = {
     "prompt": EXT_PROMPT
 }
 
-PREVIEW_EXTENSIONS = [".mp4", ".webm", ".gif", ".preview.png", ".png", ".jpg", ".jpeg", ".webp"]
+PREVIEW_EXTENSIONS = [".mp4", ".webm", ".preview.png", ".png", ".jpg", ".jpeg", ".webp"]
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".preview.png"}
-VIDEO_EXTENSIONS = {".mp4", ".webm", ".gif", ".mov"} 
+MAX_FILE_LOAD_MB = 200
+MAX_FILE_LOAD_BYTES = MAX_FILE_LOAD_MB * 1024 * 1024
+
+VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov"} 
 
 # ==========================================
 # Helper Classes
@@ -75,8 +79,9 @@ class QMutexWithLocker:
 # ==========================================
 # Utility Functions
 # ==========================================
-def sanitize_filename(filename):
-    return re.sub(r'[<>:"/\\|?*]', '', filename).strip()
+def sanitize_filename(filename: str) -> str:
+    """Removes invalid characters from a filename."""
+    return re.sub(r'[<>:\"/\\|?*]', '', filename).strip()
 
 def calculate_structure_path(model_path: str, cache_root: str, directories: Dict[str, Any], mode: str = "model") -> str:
     """
@@ -105,7 +110,7 @@ def load_config(config_path=CONFIG_FILE) -> Dict[str, Any]:
             with open(config_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except Exception as e:
-            print(f"Failed to load config: {e}")
+            logging.error(f"Failed to load config: {e}")
             return {}
 
     settings = data.get("__settings__", {})
@@ -125,7 +130,7 @@ def load_config(config_path=CONFIG_FILE) -> Dict[str, Any]:
         settings["directories"] = new_directories
         data["__settings__"] = settings
         save_config(data, config_path)
-        print("Config migrated to new structure.")
+        logging.info("Config migrated to new structure.")
         
     return data
 
@@ -135,7 +140,7 @@ def save_config(data: Dict[str, Any], config_path=CONFIG_FILE):
         with open(config_path, "w", encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        print(f"Failed to save config: {e}")
+        logging.error(f"Failed to save config: {e}")
         raise e
 
 # ==========================================

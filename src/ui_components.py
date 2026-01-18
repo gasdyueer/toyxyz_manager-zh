@@ -1,5 +1,6 @@
 import os
 import gc
+import logging
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget, 
     QSizePolicy, QDialog, QLineEdit, QFileDialog, QDialogButtonBox, 
@@ -8,11 +9,11 @@ from PySide6.QtWidgets import (
     QApplication, QMessageBox, QComboBox, QTextBrowser, QTextEdit
 )
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal, QMimeData, QSize, QBuffer, QByteArray
-from PySide6.QtGui import QPixmap, QDrag, QBrush, QColor, QImageReader
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtGui import QPixmap, QDrag, QBrush, QColor, QImageReader, QMovie
+from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 
-from .core import VIDEO_EXTENSIONS
+from .core import VIDEO_EXTENSIONS, MAX_FILE_LOAD_BYTES
 
 # ==========================================
 # Smart Media Widget
@@ -20,7 +21,10 @@ from .core import VIDEO_EXTENSIONS
 class SmartMediaWidget(QWidget):
     clicked = Signal()
 
-    def __init__(self, parent=None, loader=None):
+    def __init__(self, parent=None, loader=None, player_type=None):
+        """
+        player_type: kept for API compatibility but no longer used.
+        """
         super().__init__(parent)
         self.loader = loader
         self.current_path = None
@@ -39,18 +43,15 @@ class SmartMediaWidget(QWidget):
         self.setLayout(main_layout)
 
         self.lbl_image = QLabel("No Media")
-        self.lbl_image.setAlignment(Qt.AlignCenter)
-        self.lbl_image = QLabel("No Media")
         self.lbl_image.setObjectName("media_label")
         self.lbl_image.setAlignment(Qt.AlignCenter)
-        # self.lbl_image.setStyleSheet(...) -> Moved to QSS
         self._original_pixmap = None
+        self._movie = None  # [Animation]
         
         self.stack.addWidget(self.lbl_image)
         # Video components will be initialized lazily
         self.video_widget = None
         self.media_player = None
-        self.audio_output = None
 
         if self.loader:
             self.loader.image_loaded.connect(self._on_image_loaded)
@@ -59,14 +60,12 @@ class SmartMediaWidget(QWidget):
         if self.media_player: return
         
         self.video_widget = QVideoWidget()
-        # self.video_widget.setStyleSheet(...) -> Moved to QSS
         self.stack.addWidget(self.video_widget)
         
         self.media_player = QMediaPlayer()
-        self.audio_output = QAudioOutput()
-        self.media_player.setAudioOutput(self.audio_output)
+        # [Memory Optimization] Disable audio completely to save memory
+        self.media_player.setAudioOutput(None)
         self.media_player.setVideoOutput(self.video_widget)
-        self.audio_output.setVolume(0)
         self.media_player.setLoops(QMediaPlayer.Infinite)
         self.media_player.errorOccurred.connect(self._on_media_error)
 
@@ -78,17 +77,13 @@ class SmartMediaWidget(QWidget):
                     self.media_player.stop()
                 self.media_player.setSource(QUrl())
                 self.media_player.setVideoOutput(None)
-            except RuntimeError: pass # Object might be already deleted
+            except RuntimeError: pass
             self.media_player.deleteLater()
             self.media_player = None
             
-        if self.audio_output:
-            self.audio_output.deleteLater()
-            self.audio_output = None
-            
         if self.video_widget:
             self.stack.removeWidget(self.video_widget)
-            self.video_widget.setParent(None) # Important for full detachment
+            self.video_widget.setParent(None)
             self.video_widget.close() 
             self.video_widget.deleteLater()
             self.video_widget = None
@@ -97,11 +92,27 @@ class SmartMediaWidget(QWidget):
         self.clear_memory()
         super().closeEvent(event)
 
+    def release_resources(self):
+        """
+        [Memory Optimization] Fully release video resources.
+        Called when tab is hidden or widget is no longer needed.
+        """
+        if self.media_player or self.video_widget:
+            generated_logger = logging.getLogger("ui_components")
+            generated_logger.debug(f"[SmartMediaWidget] Release resources for: {self.current_path}")
+
+        self._destroy_video_components()
+        self._stop_movie()
+        # Clear image as well if needed, but usually we just want to stop active media
+        # self.lbl_image.clear() 
+
     def _stop_video_playback(self):
         """Stops playback and releases file lock without destroying components."""
         if self.media_player:
             self.media_player.stop()
             self.media_player.setSource(QUrl())
+        self._stop_movie() # [Animation] Also stop movie
+
 
             # Do NOT detach video output here, to allow instant reuse.
 
@@ -112,6 +123,7 @@ class SmartMediaWidget(QWidget):
         if not path:
              # Reuse: Just stop playback and show default image
              self._stop_video_playback()
+             self._stop_movie() # [Animation] Stop
              self.lbl_image.clear()
              self._original_pixmap = None
              self.current_path = None
@@ -132,13 +144,15 @@ class SmartMediaWidget(QWidget):
         ext = os.path.splitext(path)[1].lower()
         
         if ext in VIDEO_EXTENSIONS:
-            # Reuse or Init
+            # Init video components if not already created
             if not self.media_player:
                 self._init_video_components()
             
             # Stop previous if any
-            if self.media_player.playbackState() == QMediaPlayer.PlayingState:
+            if self.media_player and self.media_player.playbackState() == QMediaPlayer.PlayingState:
                 self.media_player.stop()
+            
+            self._stop_movie() # [Animation] Ensure movie stopped
             
             self.is_video = True
             self.stack.setCurrentWidget(self.video_widget)
@@ -150,10 +164,24 @@ class SmartMediaWidget(QWidget):
             # However, if there's a specific reason for a delayed start, it can remain.
             # For now, we'll keep it as per the instruction, but its effect might be minimal.
             self.play_timer.start() 
+        elif ext in {".webp"}:
+             # [Animation]
+             self.is_video = False
+             if self.media_player and self.media_player.playbackState() == QMediaPlayer.PlayingState:
+                 self.media_player.stop()
+             
+             self._stop_movie()
+             
+             self.stack.setCurrentWidget(self.lbl_image)
+             self.lbl_image.setText("Loading Animation...")
+             
+             self._start_movie(path)
         else:
             # Not a video -> Stop video but keep components for future reuse
             if self.is_video: 
                 self._stop_video_playback()
+            
+            self._stop_movie() # [Animation]
             
             self.is_video = False
             self.stack.setCurrentWidget(self.lbl_image)
@@ -163,9 +191,68 @@ class SmartMediaWidget(QWidget):
             else:
                 self._load_image_sync(path, target_width)
 
+    def _start_movie(self, path):
+        """Starts GIF/WEBP playback using QMovie."""
+        try:
+            # We must use QByteArray to avoid file locking on Windows
+            with open(path, "rb") as f:
+                data = f.read()
+            
+            byte_array = QByteArray(data)
+            # We need to keep a reference to byte_array? 
+            # QMovie documentation says "The buffer must remain valid execution". 
+            # So we store it in self._movie_data
+            self._movie_data = QBuffer(byte_array)
+            self._movie_data.open(QBuffer.ReadOnly)
+            
+            self._movie = QMovie(self._movie_data, QByteArray())
+            
+            self._movie.setCacheMode(QMovie.CacheAll)
+            
+            # [Optimization] Manual frame scaling for smooth resizing
+            # Instead of setScaledSize (which restarts movie), we scale the pixmap manually on each frame.
+            self._movie.frameChanged.connect(self._on_movie_frame)
+            
+            self._movie.start()
+            
+        except Exception as e:
+            logging.warning(f"Movie load error: {e}")
+            self.lbl_image.setText("Anim Error")
+
+    def _stop_movie(self):
+        if self._movie:
+            try:
+                self._movie.frameChanged.disconnect(self._on_movie_frame)
+            except: pass
+            
+            self._movie.stop()
+            self.lbl_image.setMovie(None) # Just in case
+            self.lbl_image.clear()        # Clear manual pixmap
+            self._movie = None
+        
+        if getattr(self, '_movie_data', None):
+            self._movie_data.close()
+            self._movie_data = None
+            
+    def _on_movie_frame(self):
+        """Manually scale and set current movie frame."""
+        if not self._movie: return
+        
+        pix = self._movie.currentPixmap()
+        if pix.isNull(): return
+        
+        # Scale to fit label size
+        view_size = self.lbl_image.size()
+        if not view_size.isEmpty():
+             scaled_pix = pix.scaled(view_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+             self.lbl_image.setPixmap(scaled_pix)
+        else:
+             self.lbl_image.setPixmap(pix)
+
     def clear_memory(self):
         """Explicitly release heavy resources."""
         self._original_pixmap = None
+        self._stop_movie() # [Animation]
         self.lbl_image.clear()
         self.play_timer.stop()
         self._destroy_video_components() 
@@ -188,8 +275,8 @@ class SmartMediaWidget(QWidget):
                 self.lbl_image.setText("File not found")
                 return
 
-            # [Safety] Prevent freezing on large files (> 100MB)
-            if os.path.getsize(path) > 100 * 1024 * 1024:
+            # [Safety] Prevent freezing on large files
+            if os.path.getsize(path) > MAX_FILE_LOAD_BYTES:
                 self.lbl_image.setText("File too large")
                 return
 
@@ -217,7 +304,7 @@ class SmartMediaWidget(QWidget):
                 
             buffer.close()
         except Exception as e:
-            print(f"Sync load error: {e}")
+            logging.warning(f"Sync load error: {e}")
             self.lbl_image.setText("Load Error")
 
     def _on_image_loaded(self, path, image):
@@ -232,7 +319,21 @@ class SmartMediaWidget(QWidget):
     def resizeEvent(self, event):
         if not self.is_video and self._original_pixmap:
             self._perform_resize()
+            
+        # [Animation] Update frame size immediately
+        if self._movie:
+             self._on_movie_frame()
+             
         super().resizeEvent(event)
+
+    def showEvent(self, event):
+        """[Fix] Force resize when widget is shown (fixes initial load sizing issue)"""
+        if not self.is_video and (self._original_pixmap or self._movie):
+             # Use timer to let layout settle before resizing
+             QTimer.singleShot(0, self._perform_resize)
+             if self._movie:
+                 QTimer.singleShot(0, self._on_movie_frame)
+        super().showEvent(event)
 
     def _perform_resize(self):
         if self._original_pixmap and not self._original_pixmap.isNull():
@@ -288,6 +389,38 @@ class SmartMediaWidget(QWidget):
             # QPixmap depth is usually 32bpp (4 bytes)
             size += self._original_pixmap.width() * self._original_pixmap.height() * 4
         return size
+    
+    def get_media_info(self):
+        """Returns detailed info about current media for debug logging."""
+        if not self.current_path or not os.path.exists(self.current_path):
+            return None
+        
+        info = {
+            "path": self.current_path,
+            "filename": os.path.basename(self.current_path),
+            "size_mb": os.path.getsize(self.current_path) / (1024 * 1024),
+            "type": "video" if self.is_video else ("animation" if self._movie else "image")
+        }
+        
+        if self.is_video and self.media_player:
+            # Video info
+            from PySide6.QtMultimedia import QMediaPlayer
+            info["playing"] = self.media_player.playbackState() == QMediaPlayer.PlayingState
+            info["duration_sec"] = self.media_player.duration() / 1000.0 if self.media_player.duration() > 0 else 0
+            # Resolution from video widget
+            if self.video_widget:
+                size = self.video_widget.size()
+                info["resolution"] = f"{size.width()}x{size.height()}"
+        else:
+            # Image/Anim info
+            if self._movie:
+                 info["resolution"] = "animation" # Complex to get exact current frame size safely
+            elif self._original_pixmap and not self._original_pixmap.isNull():
+                info["resolution"] = f"{self._original_pixmap.width()}x{self._original_pixmap.height()}"
+            else:
+                info["resolution"] = "unknown"
+        
+        return info
 
 # ==========================================
 # Dialogs
@@ -295,7 +428,6 @@ class SmartMediaWidget(QWidget):
 class FileCollisionDialog(QDialog):
     def __init__(self, filename, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("File Exists")
         self.setWindowTitle("File Exists")
         # [Memory] Auto-delete off for safety
         self.resize(400, 150)
@@ -369,7 +501,6 @@ class OverwriteConfirmDialog(QDialog):
 class DownloadDialog(QDialog):
     def __init__(self, default_path, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Download Model")
         self.setWindowTitle("Download Model")
         # [Memory] Auto-delete off for safety
         self.resize(550, 180)
@@ -449,24 +580,16 @@ class TaskMonitorWidget(QWidget):
         self.layout.setSpacing(0)
         
         header_widget = QWidget()
-        header_widget.setFixedHeight(30)
-        header_widget = QWidget()
         header_widget.setObjectName("task_header")
         header_widget.setFixedHeight(30)
         # header_widget.setStyleSheet(...) -> Moved to QSS 
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(5, 0, 5, 0)
         self.lbl_title = QLabel("Queue & History")
-        self.lbl_title = QLabel("Queue & History")
         self.lbl_title.setObjectName("task_title")
         # self.lbl_title.setStyleSheet(...) -> Moved to QSS
         
         # [수정] 버튼 스타일 개선 (글자색 흰색)
-        self.btn_clear = QPushButton("Clear Done")
-        self.btn_clear.setToolTip("Remove completed tasks from the list")
-        self.btn_clear.clicked.connect(self.clear_finished_tasks) 
-        self.btn_clear.setFixedWidth(80)
-        self.btn_clear.setFixedHeight(22)
         self.btn_clear = QPushButton("Clear Done")
         self.btn_clear.setObjectName("task_clear_btn")
         self.btn_clear.setToolTip("Remove completed tasks from the list")
@@ -495,8 +618,6 @@ class TaskMonitorWidget(QWidget):
         
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.verticalHeader().setVisible(False)
-        self.table.setShowGrid(False)
-        
         self.table.setShowGrid(False)
         self.table.setObjectName("task_table")
         # self.table.setStyleSheet(...) -> Moved to QSS

@@ -18,7 +18,7 @@ from ..core import (
 )
 from ..ui_components import SmartMediaWidget, ZoomWindow, TaskMonitorWidget
 from .example import ExampleTabWidget
-from ..workers import ImageLoader, ThumbnailWorker
+from ..workers import ImageLoader
 
 try:
     import markdown
@@ -45,25 +45,12 @@ class WorkflowManagerWidget(BaseManagerWidget):
     def get_mode(self): return "workflow"
 
     def init_center_panel(self):
-        self.info_labels = {}
-        form_layout = QFormLayout()
-        for k in ["Name", "Size", "Path", "Date"]:
-            l = QLabel("-")
-            l.setWordWrap(True)
-            self.info_labels[k] = l
-            form_layout.addRow(f"{k}:", l)
-            
-        # [Duplicate Warning]
-        self.lbl_duplicate_warning = QLabel("")
-        self.lbl_duplicate_warning.setStyleSheet("color: red; font-weight: bold;")
-        self.lbl_duplicate_warning.setWordWrap(True)
-        self.lbl_duplicate_warning.hide()
-        form_layout.addRow(self.lbl_duplicate_warning)
-            
-        self.center_layout.addLayout(form_layout)
+
+        # [Refactor] Use shared setup
+        self._setup_info_panel()
         
         # Extended SmartMediaWidget for JSON Drag & Drop
-        self.preview_lbl = WorkflowDraggableMediaWidget(loader=self.image_loader_thread)
+        self.preview_lbl = WorkflowDraggableMediaWidget(loader=self.image_loader_thread, player_type="preview")
         self.preview_lbl.setMinimumSize(100, 100)
         self.preview_lbl.clicked.connect(self.on_preview_click)
         self.center_layout.addWidget(self.preview_lbl, 1)
@@ -114,25 +101,7 @@ class WorkflowManagerWidget(BaseManagerWidget):
             self.current_path = path
             self._load_details(path)
             
-            # [Duplicate Check]
-            f_name = os.path.basename(path).lower()
-            if hasattr(self, 'file_map'):
-                duplicates = self.file_map.get(f_name, [])
-                if len(duplicates) > 1:
-                    # Exclude current path from display
-                    curr_norm = os.path.normcase(os.path.abspath(self.current_path))
-                    other_paths = [p for p in duplicates if os.path.normcase(os.path.abspath(p)) != curr_norm]
-                    
-                    msg = f"⚠️ Duplicate Workflows Found ({len(duplicates)})"
-                    if other_paths:
-                        msg += "\n" + "\n".join(other_paths)
 
-                    tooltip = "Same filename detected in:\n" + "\n".join(duplicates)
-                    self.lbl_duplicate_warning.setText(msg)
-                    self.lbl_duplicate_warning.setToolTip(tooltip)
-                    self.lbl_duplicate_warning.show()
-                else:
-                    self.lbl_duplicate_warning.hide()
             
             # Pass the JSON path to the draggable widget so it knows what to drag
             self.preview_lbl.set_json_path(path)
@@ -142,25 +111,14 @@ class WorkflowManagerWidget(BaseManagerWidget):
              self.preview_lbl.clear_memory()
         super().closeEvent(event)
     def _load_details(self, path):
-        filename = os.path.basename(path)
-        try:
-            st = os.stat(path)
-            size_str = self.format_size(st.st_size)
-            date_str = self.format_date(st.st_mtime, seconds=True)
-        except (OSError, ValueError): size_str="?"; date_str="?"
+        # [Refactor] Use shared logic from BaseManagerWidget
+        filename, size_str, date_str, preview_path = self._load_common_file_details(path)
         
         self.info_labels["Name"].setText(filename)
         self.info_labels["Size"].setText(size_str)
         self.info_labels["Date"].setText(date_str)
         self.info_labels["Path"].setText(path)
         
-        # Find thumbnail: same name as json but with image extension
-        base = os.path.splitext(path)[0]
-        preview_path = None
-        for ext in PREVIEW_EXTENSIONS:
-            if os.path.exists(base + ext):
-                preview_path = base + ext
-                break
         self.preview_lbl.set_media(preview_path)
         
         # Load Raw JSON
@@ -176,12 +134,8 @@ class WorkflowManagerWidget(BaseManagerWidget):
 
 
 
-    # save_note and handle_media_insert removed (using Base)
 
 
-            
-    def closeEvent(self, event):
-        super().closeEvent(event)
 
 
 class WorkflowDraggableMediaWidget(SmartMediaWidget):

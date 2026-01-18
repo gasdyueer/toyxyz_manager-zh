@@ -3,6 +3,7 @@ import shutil
 import json
 import time
 import gc
+import logging
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, 
     QGridLayout, QGroupBox, QLineEdit, QSplitter, QFileDialog, QMessageBox, QApplication, QTabWidget
@@ -11,23 +12,37 @@ from PySide6.QtCore import Qt, Signal
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
-from ..core import calculate_structure_path, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
+from ..core import calculate_structure_path, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, CACHE_DIR_NAME
 from ..ui_components import SmartMediaWidget, ZoomWindow
+from ..workers import LocalMetadataWorker
 
 class ExampleTabWidget(QWidget):
     status_message = Signal(str)
 
-    def __init__(self, directories, app_settings, parent=None, image_loader=None):
+    def __init__(self, directories, app_settings, parent=None, image_loader=None, cache_root=None):
         super().__init__(parent)
         self.directories = directories
         self.app_settings = app_settings
         self.image_loader = image_loader
+        self.cache_root = cache_root or CACHE_DIR_NAME
         self.current_item_path = None
         self.example_images = []
         self.current_example_idx = 0
         self._gc_counter = 0 # [Memory] Counter for periodic GC
         
         self.init_ui()
+        
+        # [Optimization] Async Metadata Worker
+        self.metadata_worker = LocalMetadataWorker()
+        self.metadata_worker.finished.connect(self._on_metadata_ready)
+        self.metadata_worker.start()
+    
+    def closeEvent(self, event):
+        """Ensure metadata worker is stopped on widget close."""
+        if self.metadata_worker and self.metadata_worker.isRunning():
+            self.metadata_worker.stop()
+            self.metadata_worker.wait(1000)  # Wait up to 1 second
+        super().closeEvent(event)
 
     def get_debug_info(self):
         mem_bytes = self.lbl_img.get_memory_usage()
@@ -57,7 +72,7 @@ class ExampleTabWidget(QWidget):
         img_layout = QVBoxLayout(img_widget)
         img_layout.setContentsMargins(0,0,0,0)
         
-        self.lbl_img = SmartMediaWidget(loader=self.image_loader)
+        self.lbl_img = SmartMediaWidget(loader=self.image_loader, player_type="example")
         self.lbl_img.setMinimumSize(100, 100)
         self.lbl_img.clicked.connect(self.on_example_click)
         
@@ -203,7 +218,7 @@ class ExampleTabWidget(QWidget):
             self._update_ui()
             return
 
-        cache_dir = calculate_structure_path(path, self.get_cache_dir(), self.directories)
+        cache_dir = calculate_structure_path(path, self.cache_root, self.directories)
         preview_dir = os.path.join(cache_dir, "preview")
         
         if os.path.exists(preview_dir):
@@ -269,7 +284,7 @@ class ExampleTabWidget(QWidget):
         files, _ = QFileDialog.getOpenFileNames(self, "Select Files", "", filters)
         if not files: return
         
-        cache_dir = calculate_structure_path(self.current_item_path, self.get_cache_dir(), self.directories)
+        cache_dir = calculate_structure_path(self.current_item_path, self.cache_root, self.directories)
         preview_dir = os.path.join(cache_dir, "preview")
         if not os.path.exists(preview_dir): os.makedirs(preview_dir)
         
@@ -301,21 +316,42 @@ class ExampleTabWidget(QWidget):
 
         # [Fix] Release file handle & Retry logic
         try:
+            # 0. Cancel any pending metadata extraction for this file
+            if self.metadata_worker:
+                self.metadata_worker.cancel_path(path)
+                # Wait briefly for current operation to finish
+                QApplication.processEvents()
+                import time
+                time.sleep(0.15)
+            
             # 1. Unload image from UI (CLEANUP)
-            # This calls the method we verified in ui_components.py that sets media to None and explicitly closes components
             self.lbl_img.clear_memory()
             QApplication.processEvents()
             
-            # 2. Simple delete (No GC magic needed if handles are properly closed)
+            # 2. Clear from ImageLoader cache (important!)
+            if self.image_loader:
+                self.image_loader.remove_from_cache(path)
+            
+            # 3. Simple delete with retry
             if os.path.exists(path):
-                os.remove(path)
+                import time
+                for attempt in range(3):
+                    try:
+                        os.remove(path)
+                        break
+                    except PermissionError as pe:
+                        if attempt < 2:
+                            time.sleep(0.1)  # 100ms delay
+                            gc.collect()  # Force garbage collection
+                        else:
+                            raise pe
 
             self.load_examples(self.current_item_path)
             self.status_message.emit("File permanently deleted.")
             
         except Exception as e:
              # Restore image if failed (try to reload what we can)
-             print(f"Delete failed: {e}")
+             logging.warning(f"Delete failed: {e}")
              QMessageBox.warning(self, "Error", f"Failed to delete file:\n{e}")
              # Try to reload current image back if it still exists
              if os.path.exists(path):
@@ -388,40 +424,16 @@ class ExampleTabWidget(QWidget):
             # Append Resources
             res_content = self.txt_resources.toPlainText().strip()
             if res_content:
-                # If we have the original raw JSON and the text box content essentially matches our formatted version,
-                # we prefer to restore the original JSON to keep metadata clean.
-                # But implementing "matches formatted version" is hard.
-                # Strategy: If the user didn't touch the text box, self._raw_civitai_resources might be better?
-                # Actually, simply appending what's in the text box is the most transparent behavior.
-                # If the user sees "[LoRA] ...", that's what gets saved. This breaks parsers that expect JSON.
-                # Wait, if we stripped the JSON to show [LoRA], and we save that back, we lose the JSON structure forever.
-                # That violates "Preservation".
-                
-                # Check if we have raw resource data
-                # Legacy Raw Check Removed:
-                # We prioritize the visible text box content because the user might have edited the Model name or resources.
-                # If we append the old hidden JSON, it might contain stale Model info.
-                # So we always fall through to the text parsing logic below.
-                if False: # Disabled
-                    pass
+                # Check if resource is JSON or formatted text
+                if res_content.startswith('[{"') or "Civitai resources:" in res_content:
+                     full_text += f", {res_content}" # Raw JSON
                 else:
-                    # If it's just text (or user pasted JSON), append it.
-                    # If it starts with '[{"', it's JSON.
-                    if res_content.startswith('[{"') or "Civitai resources:" in res_content:
-                         full_text += f", {res_content}" # User provided RAW-like
-                    else:
-                     # It's our pretty list. Saving it as a comment might be safer?
-                     # Or just append.
-                     # We should NOT append the [checkpoint] line again as "Resources".
-                     # Because we converted it to "Model:" param above.
-                     # Filter out [checkpoint] lines from appension
+                     # Filter out [checkpoint] lines (already extracted as Model param)
                      filtered_lines = [l for l in res_content.split('\n') if not l.strip().lower().startswith("[checkpoint]")]
                      cleaned_res = "\n".join(filtered_lines).strip()
                      if cleaned_res:
                          full_text += f"\nResources:\n{cleaned_res}"
              
-            # Open Image and Update Metadata
-            
             # Open Image and Update Metadata
             img = Image.open(path)
             img.load()
@@ -446,6 +458,11 @@ class ExampleTabWidget(QWidget):
                 img.save(tmp_path, **save_kwargs)
                 img.close()
                 shutil.move(tmp_path, path)
+                
+                # [CACHE] Invalidate metadata cache since file was modified
+                if self.metadata_worker:
+                    self.metadata_worker.invalidate_cache(path)
+                
                 self._parse_and_display_meta(path)
                 self.status_message.emit("Image metadata updated.")
             else:
@@ -460,10 +477,14 @@ class ExampleTabWidget(QWidget):
                 try: 
                     os.remove(path)
                 except Exception as e:
-                    print(f"Failed to remove original file: {e}")
+                    logging.warning(f"Failed to remove original file: {e}")
                 
                 self.status_message.emit("Converted to PNG and saved metadata.")
                 # Reload list because filename changed, but try to keep selection on the new file
+                # [CACHE] Invalidate old path cache (new file has different path anyway)
+                if self.metadata_worker:
+                    self.metadata_worker.invalidate_cache(path)
+                
                 self.load_examples(self.current_item_path, target_filename=os.path.basename(new_path))
             
         except Exception as e:
@@ -471,13 +492,26 @@ class ExampleTabWidget(QWidget):
 
     def _parse_and_display_meta(self, path):
         self._clear_meta()
+        self.lbl_wf_status.setText("Loading...")
+        # [Optimization] Offload to worker
+        if self.metadata_worker:
+            self.metadata_worker.extract(path)
+            
+    def _on_metadata_ready(self, path, meta):
+        # Verify if this is still the current item
+        # If user clicked multiple times, path might differ from current_item_path
+        # But for 'example' logic, self.current_item_path tracks the MAIN file (example list parent?).
+        # Wait, load_examples sets self.current_item_path to the FOLDER or FILE?
+        # self.example_images[self.current_example_idx] is the actual image being shown.
+        
+        current_img_path = None
+        if self.example_images and 0 <= self.current_example_idx < len(self.example_images):
+            current_img_path = self.example_images[self.current_example_idx]
+            
+        if not current_img_path or os.path.normpath(path) != os.path.normpath(current_img_path):
+            return # Stale result
+            
         try:
-            from ..core import validate_comfy_metadata, standardize_metadata
-            
-            with Image.open(path) as img:
-                # Standardized Metadata Extraction (Comfy / NovelAI / A1111)
-                meta = standardize_metadata(img)
-            
             # Update Status Icon based on standardized type
             # Update Status Icon based on standardized type (User Request: Only Show Comfy Workflow Status)
             if meta["type"] == "comfy":
@@ -502,7 +536,7 @@ class ExampleTabWidget(QWidget):
                  try:
                     self._display_parameters(meta["raw_text"])
                  except Exception as e:
-                    print(f"Hybrid parse error: {e}")
+                    logging.debug(f"Hybrid parse error: {e}")
 
             # Special Case: NovelAI
             # NAI LSB data ("type": "novelai") is comprehensive and structured. 
@@ -543,6 +577,30 @@ class ExampleTabWidget(QWidget):
                 self.txt_pos.setText(meta["prompts"]["positive"])
                 self.txt_neg.setText(meta["prompts"]["negative"])
                 
+            elif meta["type"] == "simpai":
+                 # Generic JSON from UserComment (SimpAI etc.)
+                 p = meta["main"]
+                 key_map = {
+                    "steps": "Steps", "sampler": "Sampler", "cfg": "CFG", "seed": "Seed", "schedule": "Schedule"
+                 }
+                 for k_std, k_ui in key_map.items():
+                    if p.get(k_std): self.param_widgets[k_ui].setText(str(p[k_std]))
+                 
+                 # SimpAI stores prompts?? Unknown from debug output.
+                 # Assuming generic map if available, else empty.
+                 self.txt_pos.setText(meta["prompts"]["positive"])
+                 self.txt_neg.setText(meta["prompts"]["negative"])
+                 
+                 # Resources
+                 if meta["model"]["checkpoint"]:
+                     self.txt_resources.setText(f"[checkpoint] {meta['model']['checkpoint']}")
+                 
+                 # ETC
+                 etc_lines = []
+                 for k, v in meta["etc"].items():
+                     etc_lines.append(f"{k}: {v}")
+                 self.txt_etc.setText("\n".join(etc_lines))
+
             else:
                  # Fallback: Last Resort Text
                  if meta.get("raw_text", ""):
@@ -551,7 +609,7 @@ class ExampleTabWidget(QWidget):
                 
         except Exception as e: 
             # Non-fatal
-            print(f"Meta parse error: {e}")
+            logging.warning(f"Meta parse error: {e}")
             # Clear etc in case of partial failure
             self.txt_etc.clear()
 
@@ -750,12 +808,13 @@ class ExampleTabWidget(QWidget):
             QApplication.clipboard().setText(text)
             self.status_message.emit(f"{name} copied to clipboard.")
 
-    def get_cache_dir(self):
-        custom_path = self.app_settings.get("cache_path", "").strip()
-        if custom_path and os.path.isdir(custom_path):
-            return custom_path
-        from ..core import CACHE_DIR_NAME
-        if not os.path.exists(CACHE_DIR_NAME):
-            try: os.makedirs(CACHE_DIR_NAME)
-            except OSError: pass
-        return CACHE_DIR_NAME
+    # [Memory Optimization]
+    def stop_videos(self):
+        """Stops and releases video resources in the example tab."""
+        if hasattr(self, 'lbl_img'):
+            if hasattr(self.lbl_img, 'release_resources'):
+                self.lbl_img.release_resources()
+            elif hasattr(self.lbl_img, '_stop_video_playback'):
+                self.lbl_img._stop_video_playback()
+
+

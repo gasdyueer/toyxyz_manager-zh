@@ -11,6 +11,8 @@ from collections import deque, OrderedDict
 from PySide6.QtCore import QThread, Signal, QMutex, QWaitCondition, Qt, QBuffer, QByteArray
 from PySide6.QtGui import QImage, QImageReader
 
+from .metadata import standardize_metadata
+
 from .core import (
     QMutexWithLocker, 
     sanitize_filename, 
@@ -20,6 +22,7 @@ from .core import (
     SUPPORTED_EXTENSIONS,
     PREVIEW_EXTENSIONS,
     VIDEO_EXTENSIONS,
+    MAX_FILE_LOAD_BYTES,
     CACHE_DIR_NAME,
     BASE_DIR
 )
@@ -51,7 +54,7 @@ class ImageLoader(QThread):
         
         # [Cache] LRU Cache
         self.cache = OrderedDict()
-        self.CACHE_SIZE = 2   # Only keep very recent history (Min capability for comparison)
+        self.CACHE_SIZE = 2  # [Optimization] Reduced to 2 by User Request
 
     def load_image(self, path, target_width=None):
         with QMutexWithLocker(self.mutex):
@@ -105,27 +108,24 @@ class ImageLoader(QThread):
                 if os.path.exists(path):
                     ext = os.path.splitext(path)[1].lower()
                     if ext in {'.mp4', '.webm', '.mkv', '.avi', '.mov', '.gif'}:
-                        logging.debug(f"Skipping video in ImageLoader: {path}") # [Log]
+                        logging.debug(f"Skipping video in ImageLoader: {path}") 
                     else:
                         try:
+                            # [Optimization] Check size first
                             f_size = os.path.getsize(path)
-                            if f_size > 200 * 1024 * 1024:
-                                 logging.warning(f"Skipping large file ({f_size} bytes): {path}") # [Log]
+                            if f_size > MAX_FILE_LOAD_BYTES:
+                                 logging.warning(f"Skipping large file ({f_size} bytes): {path}")
                             else:
-                                with open(path, "rb") as f:
-                                    raw_data = f.read()
-                                
-                                byte_array = QByteArray(raw_data)
-                                buffer = QBuffer(byte_array)
-                                buffer.open(QBuffer.ReadOnly)
-                                
-                                reader = QImageReader(buffer)
+                                logging.debug(f"[ImageLoader] Start loading: {path}")
+                                # [CRITICAL FIX] Use QImageReader directly to avoid massive memory consumption
+                                reader = QImageReader(path)
                                 reader.setAutoTransform(True)
                                 
-                                orig_size = reader.size()
-                                tw = target_width if target_width else 1024
-                                if orig_size.width() > tw or orig_size.height() > tw:
-                                    reader.setScaledSize(orig_size.scaled(tw, tw, Qt.KeepAspectRatio))
+                                # Optimization: Only scale if needed
+                                if target_width:
+                                    orig_size = reader.size()
+                                    if orig_size.isValid() and (orig_size.width() > target_width or orig_size.height() > target_width):
+                                         reader.setScaledSize(orig_size.scaled(target_width, target_width, Qt.KeepAspectRatio))
                                 
                                 loaded = reader.read()
                                 if not loaded.isNull():
@@ -134,9 +134,14 @@ class ImageLoader(QThread):
                                     else:
                                          image = loaded
                                 
-                                buffer.close()
-                        except Exception: 
-                            pass # Suppress generic load errors (e.g. non-image chunks)
+                                # Force cleanup of reader to release file lock
+                                reader.setDevice(None)
+                                del reader
+                                logging.debug(f"[ImageLoader] Finished loading: {path}")
+                                
+                        except Exception as e: 
+                            # Safe fallback or ignore
+                            logging.warning(f"Failed to load image {path}: {e}")
 
                 self.image_loaded.emit(path, image)
                 
@@ -194,7 +199,10 @@ class FileScannerWorker(QThread):
             self.finished.emit({})
             return
 
+        logging.debug(f"[FileScanner] Starting scan for: {self.base_path}")
         stack = [self.base_path]
+        visited = set() # [Optimization] Prevent infinite recursion
+        visited.add(os.path.realpath(self.base_path))
         
         while stack:
             if not self._is_running: return
@@ -210,6 +218,16 @@ class FileScannerWorker(QThread):
                         if not self._is_running: return
                         
                         if entry.is_dir():
+                            # [Bug Fix] Check for symlinks to prevent recursion
+                            if entry.is_symlink():
+                                logging.debug(f"[FileScanner] Skipping symlink directory: {entry.path}")
+                                continue
+                                
+                            real_path = os.path.realpath(entry.path)
+                            if real_path in visited:
+                                continue
+                            visited.add(real_path)
+
                             dirs_buffer.append(entry.name)
                             if self.recursive:
                                 stack.append(entry.path)
@@ -325,8 +343,6 @@ class MetadataWorker(QThread):
     task_progress = Signal(str, str, int) 
     status_update = Signal(str) 
     model_processed = Signal(bool, str, dict, str) 
-    ask_overwrite = Signal(str)
-
     ask_overwrite = Signal(str)
 
     # [Fix] Added cache_mode to distinguish content type (model, workflow, etc.)
@@ -572,7 +588,7 @@ class MetadataWorker(QThread):
             new_data["mtime_check"] = file_mtime
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(new_data, f, indent=4, ensure_ascii=False)
-        except Exception as e: print(f"Failed to save hash cache: {e}")
+        except Exception as e: logging.warning(f"Failed to save hash cache: {e}")
         return calculated_hash, False
 
     def _process_huggingface(self, model_path, url):
@@ -648,7 +664,7 @@ class MetadataWorker(QThread):
              text = re.sub(r'!\[(.*?)\]\((.*?)\)', replace_md, text)
              text = re.sub(r'(<img[^>]+src=["\'])(.*?)(["\'][^>]*>)', replace_html, text)
         except Exception as e:
-             print(f"Error processing embedded images: {e}")
+             logging.warning(f"Error processing embedded images: {e}")
              
         return text
 
@@ -733,7 +749,7 @@ class MetadataWorker(QThread):
                 shutil.copy2(found_file, dest_path)
                 self.status_update.emit(f"Auto-set media: {os.path.basename(dest_path)}")
 
-        except Exception as e: print(f"Failed to auto-set thumbnail: {e}")
+        except Exception as e: logging.warning(f"Failed to auto-set thumbnail: {e}")
 
 # ==========================================
 # Model Download Worker
@@ -854,7 +870,7 @@ class ModelDownloadWorker(QThread):
                              fname = f"{name}_{int(time.time())}{ext}"
 
             except Exception as e:
-                print(f"Collision check failed: {e}")
+                logging.warning(f"Collision check failed: {e}")
                 fname = None
 
             # 3. Download
@@ -880,3 +896,121 @@ class ModelDownloadWorker(QThread):
             return
         except Exception as e:
             self.error.emit(str(e))
+
+# ==========================================
+# Local Metadata Worker (Async Extraction)
+# ==========================================
+class LocalMetadataWorker(QThread):
+    finished = Signal(str, dict) # path, metadata
+    
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("LocalMetadataWorker")
+        self.mutex = QMutex()
+        self.condition = QWaitCondition()
+        self._is_running = True
+        self.queue = deque()
+        self.CACHE_SIZE = 50
+        self.cache = OrderedDict()  # {(path, mtime): metadata_dict}
+        
+    def extract(self, path):
+        with QMutexWithLocker(self.mutex):
+             # Debounce: Clear previous pending tasks, we only care about the latest selection
+             self.queue.clear() 
+             self.queue.append(path)
+             self.condition.wakeOne()
+             
+    def stop(self):
+        self._is_running = False
+        with QMutexWithLocker(self.mutex):
+            self.condition.wakeAll()
+    
+    def cancel_path(self, path):
+        """Remove path from queue if pending, useful before file deletion."""
+        with QMutexWithLocker(self.mutex):
+            # Remove all instances of this path from queue
+            self.queue = deque([p for p in self.queue if os.path.normpath(p) != os.normpath(path)])
+    
+    def clear_queue(self):
+        """Clear all pending tasks."""
+        with QMutexWithLocker(self.mutex):
+            self.queue.clear()
+    
+    def invalidate_cache(self, path):
+        """Remove all cache entries for a specific path (called after file modification)."""
+        with QMutexWithLocker(self.mutex):
+            keys_to_remove = [k for k in self.cache.keys() if k[0] == path]
+            for k in keys_to_remove:
+                del self.cache[k]
+            
+    def run(self):
+        from PIL import Image
+        from io import BytesIO
+        
+        while self._is_running:
+            self.mutex.lock()
+            if not self.queue:
+                self.condition.wait(self.mutex)
+                
+            if not self._is_running:
+                self.mutex.unlock()
+                break
+            
+            # Take the latest task
+            try:
+                path = self.queue.popleft()
+            except IndexError:
+                path = None
+            self.mutex.unlock()
+            
+            if path and os.path.exists(path):
+                try:
+                    # [CACHE] Check cache first
+                    mtime = None
+                    cache_key = None
+                    try:
+                        mtime = os.path.getmtime(path)
+                        cache_key = (path, mtime)
+                        
+                        # Cache hit
+                        with QMutexWithLocker(self.mutex):
+                            if cache_key in self.cache:
+                                self.cache.move_to_end(cache_key)  # LRU update
+                                cached_meta = self.cache[cache_key]
+                        
+                        if cache_key in self.cache:
+                            if self._is_running:
+                                self.finished.emit(path, cached_meta)
+                            continue
+                    except OSError:
+                        pass  # mtime lookup failed, proceed with parsing
+                    
+                    # [CACHE MISS] Parse metadata
+                    # [CRITICAL FIX] Read file into memory first to avoid file handle lock
+                    with open(path, 'rb') as f:
+                        img_bytes = f.read()
+                    # File handle is now closed!
+                    
+                    # Parse from memory
+                    with Image.open(BytesIO(img_bytes)) as img:
+                        img.load() 
+                        meta = standardize_metadata(img)
+                    
+                    # [CACHE] Store result
+                    if cache_key:
+                        try:
+                            with QMutexWithLocker(self.mutex):
+                                self.cache[cache_key] = meta
+                                self.cache.move_to_end(cache_key)
+                                if len(self.cache) > self.CACHE_SIZE:
+                                    self.cache.popitem(last=False)  # Remove oldest
+                        except Exception:
+                            pass  # Cache storage failure is non-critical
+                        
+                    if self._is_running:
+                        self.finished.emit(path, meta)
+                        
+                except Exception as e:
+                    logging.error(f"Metadata extraction failed for {path}: {e}")
+                    # Optionally emit empty meta to clear UI?
+                    # self.finished.emit(path, {"type": "error", "error": str(e)})
