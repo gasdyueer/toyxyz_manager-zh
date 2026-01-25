@@ -81,25 +81,37 @@ class ImageLoader(QThread):
                  del self.cache[path]
 
     def stop(self):
+        logging.debug(f"[ImageLoader] Stop requested. is_running={self._is_running}")
         self._is_running = False
         with QMutexWithLocker(self.mutex):
             self.condition.wakeAll()
+        logging.debug("[ImageLoader] WakeAll sent.")
 
     def run(self):
+        logging.debug("[ImageLoader] Thread START")
         while self._is_running:
             self.mutex.lock()
-            if not self.queue:
-                self.condition.wait(self.mutex)
-            
             if not self._is_running:
+                logging.debug("[ImageLoader] Loop exit check: Not running. Unlocking and breaking.")
                 self.mutex.unlock()
                 break
-
+                
+            if not self.queue:
+                logging.debug("[ImageLoader] Queue empty. Waiting...")
+                self.condition.wait(self.mutex)
+                logging.debug(f"[ImageLoader] Woke up. is_running={self._is_running}")
+            
+            if not self._is_running:
+                logging.debug("[ImageLoader] Post-wait exit check. Unlocking and breaking.")
+                self.mutex.unlock()
+                break
+            
+            path = None
+            target_width = None
             if self.queue:
                 path, target_width = self.queue.popleft()
-            else:
-                path = None
-                target_width = None
+                logging.debug(f"[ImageLoader] Popped: {path}")
+            
             self.mutex.unlock()
 
             if path:

@@ -127,6 +127,10 @@ class BaseManagerWidget(QWidget):
         left_layout.addLayout(combo_box)
         left_layout.addLayout(search_layout)
         left_layout.addWidget(self.tree)
+        
+        # Hook for additional left-side widgets (e.g. New File button)
+        self.init_left_bottom(left_layout)
+        
         self.splitter.addWidget(left_panel)
         
         # [Center Panel] - To be filled by subclasses
@@ -148,6 +152,7 @@ class BaseManagerWidget(QWidget):
     # Hooks for subclasses
     def init_center_panel(self): pass
     def init_right_panel(self): pass
+    def init_left_bottom(self, layout): pass
     def on_tree_select(self): pass
     
     def _setup_info_panel(self, extra_fields: list = None):
@@ -584,7 +589,7 @@ class BaseManagerWidget(QWidget):
         # Tab 2: Example
         # Tab 2: Example
         # [Refactor] Pass cache_root explicitely
-        self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread, cache_root=self.get_cache_dir())
+        self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread, cache_root=self.get_cache_dir(), mode=self.get_mode())
         self.tab_example.status_message.connect(self.show_status_message)
         self.tabs.addTab(self.tab_example, "Example")
         
@@ -712,30 +717,55 @@ class BaseManagerWidget(QWidget):
             except RuntimeError:
                 pass
 
+        logging.debug(f"[StopAllWorkers] Stopping {len(workers)} workers...")
+
         # Phase 1: Send Stop Signal (for those that support it)
         for w in workers:
             if hasattr(w, 'stop'):
                 w.stop()
             # ThumbnailWorker doesn't have stop(), it just runs until completion (copy is blocking usually)
         
-        # Phase 2: Wait with Global Timeout (e.g., 2.0 seconds total)
-        deadline = time.time() + 2.0
+        # Phase 2: Wait for workers
+        # We process ImageLoader LAST to give it maximum time to finish IO, 
+        # but we also don't want a shared deadline to starve it.
         
-        # Wait for standard workers
+        # 1. Wait for Scanners & Searchers (Fast)
         for w in workers:
-            remaining = max(0.1, deadline - time.time())
+            if w == getattr(self, 'image_loader_thread', None): continue
+            
             try:
                 if w.isRunning():
-                    w.wait(int(remaining * 1000))
+                    logging.debug(f"[StopAllWorkers] Waiting for {w.objectName()}...")
+                    w.wait(1000) # 1 sec each
+                    logging.debug(f"[StopAllWorkers] {w.objectName()} finished.")
             except RuntimeError: pass
 
-        # Wait for thumbnail workers
+        # 2. Wait for Thumbnail workers
         for w in thumb_workers:
-            remaining = max(0.1, deadline - time.time())
             try:
                 if w.isRunning():
-                    w.wait(int(remaining * 1000))
+                    logging.debug(f"[StopAllWorkers] Waiting for ThumbnailWorker...")
+                    w.wait(500)
             except RuntimeError: pass
+            
+        # 3. Wait for ImageLoader (Can be slow due to IO)
+        img_loader = getattr(self, 'image_loader_thread', None)
+        if img_loader:
+            try:
+                if img_loader.isRunning():
+                    logging.debug(f"[StopAllWorkers] Waiting for ImageLoaderThread (3s timeout)...")
+                    # Give it ample time (e.g. 3s)
+                    if not img_loader.wait(3000):
+                        logging.warning("[StopAllWorkers] ImageLoaderThread stuck. Forcing termination.")
+                        # Terminate is dangerous but prevents the "Destroyed while running" error on exit
+                        img_loader.terminate()
+                        img_loader.wait()
+                        logging.warning("[StopAllWorkers] ImageLoaderThread terminated.")
+                    else:
+                        logging.debug(f"[StopAllWorkers] ImageLoaderThread exited gracefully.")
+            except RuntimeError: pass
+            
+        logging.debug("[StopAllWorkers] Cleanup complete.")
 
     # [Memory Optimization] Tab Visibility Hooks
     def on_tab_hidden(self):

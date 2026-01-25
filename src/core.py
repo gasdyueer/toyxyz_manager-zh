@@ -49,7 +49,7 @@ CACHE_DIR_NAME = os.path.join(BASE_DIR, "cache")
 # Extension Definitions
 EXT_MODEL = {".ckpt", ".pt", ".bin", ".safetensors", ".gguf"}
 EXT_WORKFLOW = {".json"}
-EXT_PROMPT = {".txt"} 
+EXT_PROMPT = {".txt", ".json"} 
 
 # Mode Mapping
 SUPPORTED_EXTENSIONS = {

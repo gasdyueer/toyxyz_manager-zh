@@ -48,13 +48,19 @@ if __name__ == "__main__":
     debug_mode = "--debug" in sys.argv
 
     # Setup Logging
+    # Setup Logging
     if debug_mode:
-        logging.basicConfig(
-            filename="debug.log",
-            level=logging.INFO,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-            encoding='utf-8' # Ensure UTF-8 for Windows
-        )
+        # Force set level to DEBUG
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        
+        # Add a specific file handler for debug.log
+        debug_handler = logging.FileHandler("debug.log", encoding='utf-8')
+        debug_handler.setLevel(logging.DEBUG)
+        debug_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        root_logger.addHandler(debug_handler)
+        
+        logging.info("=== Switching to DEBUG Level ===")
         
         # Global Exception Hook
         def crash_handler(etype, value, tb):

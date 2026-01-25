@@ -808,6 +808,8 @@ class SettingsDialog(QDialog):
         form_layout.addRow("Cache Folder:", cache_layout)
         layout.addWidget(grp_gen)
         
+
+        
         # Directory Settings Group
         grp_dir = QGroupBox("Registered Folders")
         dir_layout = QVBoxLayout(grp_dir)
@@ -915,6 +917,7 @@ class SettingsDialog(QDialog):
         self.settings["civitai_api_key"] = self.entry_civitai_key.text().strip()
         self.settings["hf_api_key"] = self.entry_hf_key.text().strip()
         self.settings["cache_path"] = self.entry_cache.text().strip()
+
         
         self.result_data = {
             "__settings__": self.settings,

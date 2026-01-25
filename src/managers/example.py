@@ -19,13 +19,17 @@ from ..workers import LocalMetadataWorker
 class ExampleTabWidget(QWidget):
     status_message = Signal(str)
 
-    def __init__(self, directories, app_settings, parent=None, image_loader=None, cache_root=None):
+    def __init__(self, directories, app_settings, parent=None, image_loader=None, cache_root=None, mode="model"):
         super().__init__(parent)
         self.directories = directories
         self.app_settings = app_settings
         self.image_loader = image_loader
         self.cache_root = cache_root or CACHE_DIR_NAME
+        self.mode = mode
+        self.mode = mode
         self.current_item_path = None
+        self.current_cache_dir = None
+        self.using_custom_path = False
         self.example_images = []
         self.current_example_idx = 0
         self._gc_counter = 0 # [Memory] Counter for periodic GC
@@ -208,7 +212,9 @@ class ExampleTabWidget(QWidget):
         self.lbl_count.setText("0/0")
         self.lbl_wf_status.setText("")
         
-    def load_examples(self, path, target_filename=None):
+    def load_examples(self, path, target_filename=None, custom_cache_path=None):
+        # Detect if this is a "reload" or "switch"
+        is_reload = (path == self.current_item_path)
         self.current_item_path = path
         self.example_images = []
         self.current_example_idx = 0
@@ -218,7 +224,18 @@ class ExampleTabWidget(QWidget):
             self._update_ui()
             return
 
-        cache_dir = calculate_structure_path(path, self.cache_root, self.directories)
+        # Determine Cache Directory
+        if custom_cache_path:
+            self.current_cache_dir = custom_cache_path
+            self.using_custom_path = True
+        elif is_reload and getattr(self, 'using_custom_path', False):
+            # Keep existing current_cache_dir
+            pass
+        else:
+            self.using_custom_path = False
+            self.current_cache_dir = calculate_structure_path(path, self.cache_root, self.directories, mode=self.mode)
+
+        cache_dir = self.current_cache_dir
         preview_dir = os.path.join(cache_dir, "preview")
         
         if os.path.exists(preview_dir):
@@ -280,11 +297,13 @@ class ExampleTabWidget(QWidget):
     def add_example_image(self):
         if not self.current_item_path: return
         
+
         filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
         files, _ = QFileDialog.getOpenFileNames(self, "Select Files", "", filters)
         if not files: return
         
-        cache_dir = calculate_structure_path(self.current_item_path, self.cache_root, self.directories)
+        cache_dir = self.current_cache_dir
+        if not cache_dir: return
         preview_dir = os.path.join(cache_dir, "preview")
         if not os.path.exists(preview_dir): os.makedirs(preview_dir)
         
