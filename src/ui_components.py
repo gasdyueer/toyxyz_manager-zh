@@ -731,11 +731,11 @@ class TaskMonitorWidget(QWidget):
                     self.row_map[key] = r
 
 class FolderDialog(QDialog):
-    def __init__(self, parent=None, path="", mode="model"):
+    def __init__(self, parent=None, path="", mode="model", model_type="checkpoints"):
         super().__init__(parent)
         self.setWindowTitle("Folder Settings")
         # [Memory] Auto-delete on close
-        self.resize(400, 150)
+        self.resize(400, 180)
         
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -753,6 +753,22 @@ class FolderDialog(QDialog):
         self.combo_mode.addItems(["model", "workflow", "prompt"])
         self.combo_mode.setCurrentText(mode)
         form.addRow("Mode:", self.combo_mode)
+
+        # [Feature] Model Type Selector
+        self.combo_type = QComboBox()
+        self.model_types = [
+            "checkpoints", "loras", "vae", "controlnet", 
+            "clip", "unet", "upscale_models", "embeddings", "diffusion_models"
+        ]
+        self.combo_type.addItems(self.model_types)
+        self.combo_type.setCurrentText(model_type if model_type in self.model_types else "checkpoints")
+        
+        self.lbl_type = QLabel("Model Type:")
+        form.addRow(self.lbl_type, self.combo_type)
+        
+        # Logic: Show Model Type only when Mode is 'model'
+        self.combo_mode.currentTextChanged.connect(self._on_mode_changed)
+        self._on_mode_changed(mode)
         
         layout.addLayout(form)
         
@@ -763,6 +779,11 @@ class FolderDialog(QDialog):
         
         self.result_data = None
 
+    def _on_mode_changed(self, text):
+        is_model = (text == "model")
+        self.lbl_type.setVisible(is_model)
+        self.combo_type.setVisible(is_model)
+
     def browse(self):
         d = QFileDialog.getExistingDirectory(self, "Select Folder", self.edit_path.text())
         if d: self.edit_path.setText(d)
@@ -770,11 +791,15 @@ class FolderDialog(QDialog):
     def accept(self):
         path = self.edit_path.text().strip()
         alias = os.path.basename(path) if path else ""
-        self.result_data = (alias, path, self.combo_mode.currentText())
+        mode = self.combo_mode.currentText()
+        # Only save model_type if mode is 'model'
+        m_type = self.combo_type.currentText() if mode == "model" else ""
+        
+        self.result_data = (alias, path, mode, m_type)
         super().accept()
 
     def get_data(self):
-        return self.result_data if self.result_data else ("", "", "model")
+        return self.result_data if self.result_data else ("", "", "model", "")
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None, settings=None, directories=None):
@@ -814,11 +839,12 @@ class SettingsDialog(QDialog):
         dir_layout = QVBoxLayout(grp_dir)
         
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["Name", "Mode", "Path"])
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Name", "Mode", "Type", "Path"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         dir_layout.addWidget(self.table)
@@ -856,24 +882,26 @@ class SettingsDialog(QDialog):
         for alias, data in self.directories.items():
             path = data.get("path", "")
             mode = data.get("mode", "model")
+            m_type = data.get("model_type", "")
             
             row = self.table.rowCount()
             self.table.insertRow(row)
             self.table.setItem(row, 0, QTableWidgetItem(alias))
             self.table.setItem(row, 1, QTableWidgetItem(mode))
-            self.table.setItem(row, 2, QTableWidgetItem(path))
+            self.table.setItem(row, 2, QTableWidgetItem(m_type))
+            self.table.setItem(row, 3, QTableWidgetItem(path))
 
     def add_folder(self):
         dlg = FolderDialog(self)
         if dlg.exec():
-            alias, path, mode = dlg.get_data()
+            alias, path, mode, m_type = dlg.get_data()
             if not alias or not path: return
             
             if alias in self.directories:
                 QMessageBox.warning(self, "Error", "A folder with this name already exists.")
                 return
             
-            self.directories[alias] = {"path": path, "mode": mode}
+            self.directories[alias] = {"path": path, "mode": mode, "model_type": m_type}
             self.refresh_table()
 
     def edit_folder(self):
@@ -882,9 +910,9 @@ class SettingsDialog(QDialog):
         alias = self.table.item(row, 0).text()
         data = self.directories.get(alias, {})
         
-        dlg = FolderDialog(self, path=data.get("path", ""), mode=data.get("mode", "model"))
+        dlg = FolderDialog(self, path=data.get("path", ""), mode=data.get("mode", "model"), model_type=data.get("model_type", ""))
         if dlg.exec():
-            new_alias, new_path, new_mode = dlg.get_data()
+            new_alias, new_path, new_mode, new_type = dlg.get_data()
             if not new_alias or not new_path: return
             
             # If alias changed (because path changed), delete old key
@@ -894,7 +922,7 @@ class SettingsDialog(QDialog):
                     return
                 del self.directories[alias]
                 
-            self.directories[new_alias] = {"path": new_path, "mode": new_mode}
+            self.directories[new_alias] = {"path": new_path, "mode": new_mode, "model_type": new_type}
             self.refresh_table()
 
     def remove_folder(self):

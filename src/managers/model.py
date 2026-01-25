@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QFormLayout, QGridLayout, QTabWidget, QStackedWidget, QMessageBox, QGroupBox, QLineEdit, QFileDialog, QInputDialog,
     QSplitter, QApplication
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QMimeData
 from PySide6.QtGui import QFont
 
 from .base import BaseManagerWidget
@@ -26,6 +26,7 @@ from .example import ExampleTabWidget
 from ..workers import ImageLoader
 from .download import DownloadController
 from ..controllers.metadata_controller import MetadataController
+from ..utils.comfy_node_builder import ComfyNodeBuilder
 
 try:
     from PIL import Image
@@ -111,21 +112,26 @@ class ModelManagerWidget(BaseManagerWidget):
         # [Refactor] Use shared setup
         self._setup_info_panel(["Ext"])
         
-        self.center_layout.addLayout(QFormLayout()) # Dummy for alignment if needed? No, _setup_info_panel already adds logic.
-        # Wait, _setup_info_panel added layout to center_layout. So I don't need dummy.
-        
         self.preview_lbl = SmartMediaWidget(loader=self.image_loader_thread, player_type="preview")
         self.preview_lbl.setMinimumSize(100, 100) 
         self.preview_lbl.clicked.connect(self.on_preview_click)
         self.center_layout.addWidget(self.preview_lbl, 1)
         
         center_btn_layout = QHBoxLayout()
+        
+        # [Feature] Copy ComfyUI Node
+        self.btn_copy_node = QPushButton("📋 Copy Node")
+        self.btn_copy_node.setToolTip("Copy as ComfyUI Node JSON (Ctrl+V in ComfyUI)")
+        self.btn_copy_node.clicked.connect(self.copy_comfy_node)
+        
         self.btn_replace = QPushButton("🖼️ Change Thumb")
         self.btn_replace.setToolTip("Change the thumbnail image for the selected model")
         self.btn_replace.clicked.connect(self.replace_thumbnail)
         btn_open = QPushButton("📂 Open Folder")
         btn_open.setToolTip("Open the containing folder in File Explorer")
         btn_open.clicked.connect(self.open_current_folder)
+        
+        center_btn_layout.addWidget(self.btn_copy_node)
         center_btn_layout.addWidget(self.btn_replace)
         center_btn_layout.addWidget(btn_open)
         self.center_layout.addLayout(center_btn_layout)
@@ -160,6 +166,39 @@ class ModelManagerWidget(BaseManagerWidget):
 
 
     # === Interaction Logic ===
+
+    def copy_comfy_node(self):
+        if not self.current_path or not os.path.exists(self.current_path):
+            self.show_status_message("No model selected or file not found.", 3000)
+            return
+
+        # Get Model Type from current folder config
+        current_root_alias = self.folder_combo.currentText()
+        folder_config = self.directories.get(current_root_alias, {})
+        model_type = folder_config.get("model_type", "")
+        
+        if not model_type:
+             QMessageBox.warning(self, "Configuration Required", 
+                                 f"Model Type is not configured for '{current_root_alias}'.\nPlease set it in Settings -> Registered Folders.")
+             return
+            
+        data, mime_type = ComfyNodeBuilder.create_html_clipboard(self.current_path, model_type)
+        print(f"[DEBUG] Copy Node Payload ({mime_type}): {data}") 
+        
+        clipboard = QApplication.clipboard()
+        mime_data = QMimeData()
+        
+        if mime_type == "text/html":
+            mime_data.setHtml(data)
+            mime_data.setText("ComfyUI Node") # Fallback text
+        else:
+            mime_data.setText(data)
+            
+        clipboard.setMimeData(mime_data)
+        
+        msg = "Embedding copied!" if model_type == "embeddings" else "ComfyUI Node copied to clipboard!"
+        self.show_status_message(msg, 3000)
+        # Optional: Toast notification if available, but status bar is fine.
     
     def on_tree_select(self):
         items = self.tree.selectedItems()
