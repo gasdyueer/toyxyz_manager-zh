@@ -15,14 +15,8 @@ from ..core import SUPPORTED_EXTENSIONS, CACHE_DIR_NAME, calculate_structure_pat
 import uuid
 import shutil
 
-
-
-
 from PySide6.QtCore import Signal
-
-
-# [Enhanced List Widget Item]
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy 
+from PySide6.QtWidgets import QSizePolicy
 
 # [Helper Class for Event Propagation & Advanced Wrapping]
 class PromptTextEdit(QTextEdit):
@@ -46,15 +40,8 @@ class PromptTextEdit(QTextEdit):
         self.document().setDocumentMargin(0) # Remove internal document margin
         
         # Style
-        self.setStyleSheet(f"""
-            QTextEdit {{
-                color: black;
-                background-color: {bg_color};
-                border: 1px solid {border_color};
-                border-radius: 4px;
-                padding: 4px; 
-            }}
-        """)
+        # Style -> Moved to QSS
+        # Removed inline stylesheet
         
         # Size Policy
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
@@ -145,6 +132,7 @@ class PromptListItemWidget(QWidget):
             pos_row.addWidget(btn_copy_pos)
             
             self.txt_pos = PromptTextEdit(positive, bg_color="#f9f9f9", border_color="#ddd")
+            self.txt_pos.setObjectName("PromptItemPositive")
             self.txt_pos.clicked.connect(self._propagate_click)
             pos_row.addWidget(self.txt_pos, 1) 
             
@@ -166,6 +154,7 @@ class PromptListItemWidget(QWidget):
             neg_row.addWidget(btn_copy_neg)
             
             self.txt_neg = PromptTextEdit(negative, bg_color="#fff5f5", border_color="#eec")
+            self.txt_neg.setObjectName("PromptItemNegative")
             self.txt_neg.clicked.connect(self._propagate_click)
             neg_row.addWidget(self.txt_neg, 1) 
             
@@ -176,13 +165,15 @@ class PromptListItemWidget(QWidget):
             tag_str = ", ".join(tags)
             self.lbl_tags = QLabel(f"Tags: {tag_str}")
             self.lbl_tags.setWordWrap(True)
-            self.lbl_tags.setStyleSheet("color: #555; font-size: 11px; margin-top: 5px;")
+            self.lbl_tags.setObjectName("PromptTags")
             main_layout.addWidget(self.lbl_tags)
 
         if not positive and not negative:
             lbl_empty = QLabel("(Empty Prompt)")
             lbl_empty.setAlignment(Qt.AlignCenter)
-            lbl_empty.setStyleSheet("color: #999; padding: 10px;")
+            lbl_empty = QLabel("(Empty Prompt)")
+            lbl_empty.setAlignment(Qt.AlignCenter)
+            lbl_empty.setObjectName("PromptEmpty")
             main_layout.addWidget(lbl_empty)
             
         # Size Policy
@@ -285,14 +276,18 @@ class PromptEditDialog(QDialog):
         layout.addWidget(QLabel("Positive Prompt:"))
         self.txt_positive = QTextEdit()
         self.txt_positive.setPlainText(positive)
-        self.txt_positive.setStyleSheet("background-color: #f0fff0;") # Light Green
+        self.txt_positive.setPlainText(positive)
+        self.txt_positive.setStyleSheet("background-color: #f0fff0;") # Keeping inline for dynamic hint
+        layout.addWidget(self.txt_positive)
         layout.addWidget(self.txt_positive)
         
         # Negative
         layout.addWidget(QLabel("Negative Prompt:"))
         self.txt_negative = QTextEdit()
         self.txt_negative.setPlainText(negative)
-        self.txt_negative.setStyleSheet("background-color: #fff0f0;") # Light Red
+        self.txt_negative.setPlainText(negative)
+        self.txt_negative.setStyleSheet("background-color: #fff0f0;") # Keeping inline for dynamic hint
+        layout.addWidget(self.txt_negative)
         layout.addWidget(self.txt_negative)
         
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -313,8 +308,6 @@ class PromptManagerWidget(BaseManagerWidget):
         
         self.current_prompt_data = [] # List of dicts
         self.current_json_path = None
-        self.current_prompt_index = -1
-
         self.current_prompt_index = -1
 
     def set_directories(self, directories):
@@ -340,18 +333,8 @@ class PromptManagerWidget(BaseManagerWidget):
         self.prompt_list.setResizeMode(QListWidget.Adjust) 
         
         # [UI] Light gray selection color
-        self.prompt_list.setStyleSheet("""
-            QListWidget::item:selected {
-                background-color: #e8e8e8;
-                color: black;
-            }
-            QListWidget::item:hover {
-                background-color: #f0f0f0;
-            }
-            QListWidget::item {
-                border-bottom: 1px solid #ddd;
-            }
-        """)
+        # [UI] Light gray selection color
+        self.prompt_list.setObjectName("PromptList")
         
         self.prompt_list.itemSelectionChanged.connect(self.on_prompt_selected)
         

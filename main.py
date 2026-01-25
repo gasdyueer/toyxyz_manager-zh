@@ -1,21 +1,32 @@
 import sys
 import logging
 import os
-from datetime import datetime
 
 # [Infra] Setup Logging
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
+# Argument Parsing
+debug_mode = "--debug" in sys.argv
 
-log_file = os.path.join(LOG_DIR, "app.log")
+# [Infra] Setup Logging
+handlers = [logging.StreamHandler(sys.stdout)]
+
+if debug_mode:
+    LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
+        
+    log_file = os.path.join(LOG_DIR, "debug.log")
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(module)s] %(message)s"))
+    handlers.append(file_handler)
+    
+    log_level = logging.DEBUG
+else:
+    log_level = logging.INFO
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format="[%(asctime)s] [%(levelname)s] [%(module)s] %(message)s",
-    handlers=[
-        logging.FileHandler(log_file, encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=handlers
 )
 
 # ... PySide6 imports ...
@@ -41,26 +52,11 @@ if __name__ == "__main__":
     style_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "styles.qss")
     StyleManager.apply_styles(app, style_path)
 
-    import logging
     import traceback
 
-    # Argument Parsing
-    debug_mode = "--debug" in sys.argv
-
-    # Setup Logging
-    # Setup Logging
+    # Debug Mode Extras (Crash Handler)
     if debug_mode:
-        # Force set level to DEBUG
-        root_logger = logging.getLogger()
-        root_logger.setLevel(logging.DEBUG)
-        
-        # Add a specific file handler for debug.log
-        debug_handler = logging.FileHandler("debug.log", encoding='utf-8')
-        debug_handler.setLevel(logging.DEBUG)
-        debug_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-        root_logger.addHandler(debug_handler)
-        
-        logging.info("=== Switching to DEBUG Level ===")
+        logging.info("=== Application Started (Debug Mode) ===")
         
         # Global Exception Hook
         def crash_handler(etype, value, tb):
@@ -70,7 +66,6 @@ if __name__ == "__main__":
             sys.exit(1)
             
         sys.excepthook = crash_handler
-        logging.info("=== Application Started (Debug Mode) ===")
 
     window = ModelManagerWindow(debug_mode=debug_mode)
     window.show()

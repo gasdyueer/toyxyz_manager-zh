@@ -62,14 +62,6 @@ class ExampleTabWidget(QWidget):
         main_layout.setContentsMargins(5,5,5,5)
         
         self.splitter = QSplitter(Qt.Vertical)
-        self.splitter.setStyleSheet("""
-            QSplitter::handle:horizontal {
-                width: 15px;
-            }
-            QSplitter::handle:vertical {
-                height: 15px;
-            }
-        """)
         
         # [Top] Image Area
         img_widget = QWidget()
@@ -155,7 +147,7 @@ class ExampleTabWidget(QWidget):
         
         self.txt_neg = QTextEdit()
         self.txt_neg.setPlaceholderText("Negative Prompt")
-        self.txt_neg.setStyleSheet("background-color: #fff0f0;")
+        self.txt_neg.setObjectName("ExampleNegativePrompt")
         meta_layout.addWidget(self.txt_neg, 1)
         
         # Generation Settings
@@ -536,11 +528,15 @@ class ExampleTabWidget(QWidget):
             if meta["type"] == "comfy":
                 self.lbl_wf_status.setText("Workflow")
                 self.lbl_wf_status.setToolTip("Contains ComfyUI Workflow (JSON)")
-                self.lbl_wf_status.setStyleSheet("color: #4CAF50; font-weight: bold;")
+                self.lbl_wf_status.setObjectName("WorkflowStatus_Success")
             else:
                 self.lbl_wf_status.setText("no workflow")
                 self.lbl_wf_status.setToolTip("No ComfyUI workflow metadata found")
-                self.lbl_wf_status.setStyleSheet("color: #888; font-weight: normal;")
+                self.lbl_wf_status.setObjectName("WorkflowStatus_Normal")
+                
+                # Force style reload since ObjectName changed
+                self.lbl_wf_status.style().unpolish(self.lbl_wf_status)
+                self.lbl_wf_status.style().polish(self.lbl_wf_status)
                 
             # Populate UI based on standardized data
             
@@ -820,7 +816,9 @@ class ExampleTabWidget(QWidget):
         self.txt_etc.clear()
         self._raw_civitai_resources = None
         self.lbl_wf_status.setText("No Workflow")
-        self.lbl_wf_status.setStyleSheet("color: grey")
+        self.lbl_wf_status.setObjectName("WorkflowStatus_Neutral")
+        self.lbl_wf_status.style().unpolish(self.lbl_wf_status)
+        self.lbl_wf_status.style().polish(self.lbl_wf_status)
 
     def _copy_to_clipboard(self, text, name):
         if text:

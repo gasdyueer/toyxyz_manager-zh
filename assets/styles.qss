@@ -1,0 +1,154 @@
+/* =======================================================
+   TOYXYZ MANAGER STYLESHEET
+   ======================================================= */
+
+/* --- General --- */
+QWidget {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 13px;
+    color: #333;
+}
+
+QMainWindow, QDialog {
+    background-color: #f5f5f5;
+}
+
+QSplitter::handle {
+    background-color: #ccc;
+    height: 1px;
+}
+
+/* --- QTreeWidget --- */
+QTreeWidget {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    alternate-background-color: #f9f9f9;
+}
+QTreeWidget::item {
+    height: 24px;
+    padding: 2px;
+}
+QTreeWidget::item:hover {
+    background-color: #e6f7ff;
+}
+QTreeWidget::item:selected {
+    background-color: #0078d4;
+    color: white;
+}
+
+/* --- TaskMonitorWidget --- */
+QWidget#task_header {
+    background-color: transparent;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    border-bottom: 1px solid #ddd;
+}
+
+QLabel#task_title {
+    color: #333;
+    font-weight: bold;
+    font-size: 13px;
+}
+
+QPushButton#task_clear_btn {
+    background-color: #e0e0e0;
+    color: #333;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    padding: 2px 8px;
+}
+QPushButton#task_clear_btn:hover {
+    background-color: #d0d0d0;
+}
+
+QTableWidget#task_table {
+    border: 1px solid #ddd;
+    border-radius: 0 0 4px 4px;
+    background-color: white;
+    gridline-color: #f0f0f0;
+}
+QTableWidget#task_table::item {
+    padding: 2px;
+}
+
+/* --- Prompt Manager --- */
+PromptTextEdit {
+    color: black;
+    border-radius: 4px;
+    padding: 4px;
+    border: 1px solid #ddd;
+}
+/* Note: Dynamic background colors (red/green) are handled via ID or Property in code, 
+   or we can define specific ID selectors here if we assign them. */
+
+QWidget#PromptItemPositive {
+     background-color: #f9f9f9;
+}
+QWidget#PromptItemNegative {
+     background-color: #fff5f5;
+     border-color: #eec;
+}
+
+QListWidget#PromptList {
+    background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+QListWidget#PromptList::item {
+    border-bottom: 1px solid #eee;
+    padding: 4px;
+}
+QListWidget#PromptList::item:selected {
+    background-color: #e8e8e8;
+    color: black;
+}
+QListWidget#PromptList::item:hover {
+    background-color: #f0f0f0;
+}
+
+QLabel#PromptTags {
+    color: #555;
+    font-size: 11px;
+    margin-top: 5px;
+}
+
+QLabel#PromptEmpty {
+    color: #999;
+    padding: 10px;
+}
+
+/* --- Duplicate Warning --- */
+QLabel#DuplicateWarning {
+    color: red;
+    font-weight: bold;
+}
+
+/* --- Workflow Status --- */
+QLabel#WorkflowStatus_Success {
+    color: #4CAF50;
+    font-weight: bold;
+}
+QLabel#WorkflowStatus_Normal {
+    color: #888;
+    font-weight: normal;
+}
+QLabel#WorkflowStatus_Neutral {
+    color: grey;
+}
+
+/* --- Example Tab --- */
+QTextEdit#ExampleNegativePrompt {
+    background-color: #fff0f0;
+    border: 1px solid #ddd;
+}
+
+/* --- Dialogs --- */
+QLabel#FileCollisionIcon {
+    font-size: 30px;
+}
+
+/* --- Black Background (e.g. ZoomWindow) --- */
+QWidget#BlackBackground {
+    background-color: black;
+}

@@ -13,8 +13,6 @@ from PySide6.QtCore import Qt, QThread
 from ..workers import FileScannerWorker, ThumbnailWorker, FileSearchWorker, ImageLoader
 from ..ui_components import ZoomWindow, MarkdownNoteWidget
 from .example import ExampleTabWidget
-from ..ui_components import ZoomWindow, MarkdownNoteWidget
-from .example import ExampleTabWidget
 from ..core import VIDEO_EXTENSIONS, PREVIEW_EXTENSIONS, calculate_structure_path
 
 class BaseManagerWidget(QWidget):
@@ -173,7 +171,7 @@ class BaseManagerWidget(QWidget):
             
         # Duplicate Warning
         self.lbl_duplicate_warning = QLabel("")
-        self.lbl_duplicate_warning.setStyleSheet("color: red; font-weight: bold;")
+        self.lbl_duplicate_warning.setObjectName("DuplicateWarning")
         self.lbl_duplicate_warning.setWordWrap(True)
         self.lbl_duplicate_warning.hide()
         form_layout.addRow(self.lbl_duplicate_warning)
@@ -586,7 +584,6 @@ class BaseManagerWidget(QWidget):
         self.tab_note.set_media_handler(self.handle_media_insert)
         self.tabs.addTab(self.tab_note, "Note")
         
-        # Tab 2: Example
         # Tab 2: Example
         # [Refactor] Pass cache_root explicitely
         self.tab_example = ExampleTabWidget(self.directories, self.app_settings, self, self.image_loader_thread, cache_root=self.get_cache_dir(), mode=self.get_mode())

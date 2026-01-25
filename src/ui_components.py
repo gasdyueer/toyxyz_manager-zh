@@ -438,7 +438,7 @@ class FileCollisionDialog(QDialog):
         msg_container = QWidget()
         msg_layout = QHBoxLayout(msg_container)
         icon_label = QLabel("⚠️")
-        icon_label.setStyleSheet("font-size: 30px;")
+        icon_label.setObjectName("FileCollisionIcon")
         text_label = QLabel(f"The file <b>'{filename}'</b> already exists.\nWhat would you like to do?")
         text_label.setWordWrap(True)
         msg_layout.addWidget(icon_label)
@@ -620,7 +620,6 @@ class TaskMonitorWidget(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
         self.table.setObjectName("task_table")
-        # self.table.setStyleSheet(...) -> Moved to QSS
         self.layout.addWidget(self.table)
         self.row_map = {} 
         self.table.setVisible(True)
@@ -1008,9 +1007,8 @@ class MarkdownNoteWidget(QWidget):
     def update_preview(self):
         text = self.editor.toPlainText()
         # Default font size logic or just let Qt handle it
-        # Fixed reasonable default for preview
-        font_size_pt = 10 
-        css = f"<style>img {{ max-width: 100%; height: auto; }} body {{ color: black; background-color: white; font-size: {font_size_pt}pt; font-family: sans-serif; }}</style>"
+        # Let Qt/QSS handle the font size
+        css = f"<style>img {{ max-width: 100%; height: auto; }} body {{ color: black; background-color: white; font-family: sans-serif; }}</style>"
         try:
             import markdown
             html = markdown.markdown(text)
