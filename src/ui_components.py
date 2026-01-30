@@ -731,11 +731,11 @@ class TaskMonitorWidget(QWidget):
                     self.row_map[key] = r
 
 class FolderDialog(QDialog):
-    def __init__(self, parent=None, path="", mode="model", model_type="checkpoints"):
+    def __init__(self, parent=None, path="", mode="model", model_type="checkpoints", comfy_root=""):
         super().__init__(parent)
         self.setWindowTitle("Folder Settings")
         # [Memory] Auto-delete on close
-        self.resize(400, 180)
+        self.resize(500, 250)
         
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -748,6 +748,20 @@ class FolderDialog(QDialog):
         btn_browse.clicked.connect(self.browse)
         path_box.addWidget(btn_browse)
         form.addRow("Path:", path_box)
+        
+        # [Feature] ComfyUI Root Override
+        self.lbl_comfy_root = QLabel("ComfyUI Root:")
+        self.edit_comfy_root = QLineEdit(comfy_root)
+        self.edit_comfy_root.setPlaceholderText("Optional: Root path for ComfyUI (full absolute path)")
+        self.edit_comfy_root.setToolTip("If set, 'Copy Node' will use this path as the base for relative path calculation.\nUseful if your manager folders are different from ComfyUI's model roots.")
+        
+        cpath_box = QHBoxLayout()
+        cpath_box.addWidget(self.edit_comfy_root)
+        self.btn_browse_root = QPushButton("📂")
+        self.btn_browse_root.clicked.connect(self.browse_root)
+        cpath_box.addWidget(self.btn_browse_root)
+        
+        form.addRow(self.lbl_comfy_root, cpath_box)
         
         self.combo_mode = QComboBox()
         self.combo_mode.addItems(["model", "workflow", "prompt"])
@@ -783,10 +797,19 @@ class FolderDialog(QDialog):
         is_model = (text == "model")
         self.lbl_type.setVisible(is_model)
         self.combo_type.setVisible(is_model)
+        
+        # Toggle Comfy Root visibility (Label + Input + Button)
+        self.lbl_comfy_root.setVisible(is_model)
+        self.edit_comfy_root.setVisible(is_model)
+        self.btn_browse_root.setVisible(is_model)
 
     def browse(self):
         d = QFileDialog.getExistingDirectory(self, "Select Folder", self.edit_path.text())
         if d: self.edit_path.setText(d)
+
+    def browse_root(self):
+        d = QFileDialog.getExistingDirectory(self, "Select ComfyUI Root Folder", self.edit_comfy_root.text())
+        if d: self.edit_comfy_root.setText(d)
 
     def accept(self):
         path = self.edit_path.text().strip()
@@ -794,12 +817,13 @@ class FolderDialog(QDialog):
         mode = self.combo_mode.currentText()
         # Only save model_type if mode is 'model'
         m_type = self.combo_type.currentText() if mode == "model" else ""
+        c_root = self.edit_comfy_root.text().strip() if mode == "model" else ""
         
-        self.result_data = (alias, path, mode, m_type)
+        self.result_data = (alias, path, mode, m_type, c_root)
         super().accept()
 
     def get_data(self):
-        return self.result_data if self.result_data else ("", "", "model", "")
+        return self.result_data if self.result_data else ("", "", "model", "", "")
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None, settings=None, directories=None):
@@ -879,10 +903,17 @@ class SettingsDialog(QDialog):
 
     def refresh_table(self):
         self.table.setRowCount(0)
+        # [Update] Added Comfy Root Column
+        if self.table.columnCount() < 5:
+             self.table.setColumnCount(5)
+             self.table.setHorizontalHeaderLabels(["Name", "Mode", "Type", "Path", "Comfy Root"])
+             self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+             
         for alias, data in self.directories.items():
             path = data.get("path", "")
             mode = data.get("mode", "model")
             m_type = data.get("model_type", "")
+            c_root = data.get("comfy_root", "")
             
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -890,18 +921,27 @@ class SettingsDialog(QDialog):
             self.table.setItem(row, 1, QTableWidgetItem(mode))
             self.table.setItem(row, 2, QTableWidgetItem(m_type))
             self.table.setItem(row, 3, QTableWidgetItem(path))
+            self.table.setItem(row, 4, QTableWidgetItem(c_root))
 
     def add_folder(self):
         dlg = FolderDialog(self)
         if dlg.exec():
-            alias, path, mode, m_type = dlg.get_data()
+            alias, path, mode, m_type, c_root = dlg.get_data()
             if not alias or not path: return
             
-            if alias in self.directories:
-                QMessageBox.warning(self, "Error", "A folder with this name already exists.")
-                return
+            # [Auto-Rename] Handle duplicates
+            original_alias = alias
+            counter = 2
+            while alias in self.directories:
+                alias = f"{original_alias} ({counter})"
+                counter += 1
             
-            self.directories[alias] = {"path": path, "mode": mode, "model_type": m_type}
+            self.directories[alias] = {
+                "path": path, 
+                "mode": mode, 
+                "model_type": m_type,
+                "comfy_root": c_root
+            }
             self.refresh_table()
 
     def edit_folder(self):
@@ -910,19 +950,38 @@ class SettingsDialog(QDialog):
         alias = self.table.item(row, 0).text()
         data = self.directories.get(alias, {})
         
-        dlg = FolderDialog(self, path=data.get("path", ""), mode=data.get("mode", "model"), model_type=data.get("model_type", ""))
+        dlg = FolderDialog(
+            self, 
+            path=data.get("path", ""), 
+            mode=data.get("mode", "model"), 
+            model_type=data.get("model_type", ""),
+            comfy_root=data.get("comfy_root", "")
+        )
         if dlg.exec():
-            new_alias, new_path, new_mode, new_type = dlg.get_data()
+            new_alias, new_path, new_mode, new_type, new_c_root = dlg.get_data()
             if not new_alias or not new_path: return
             
-            # If alias changed (because path changed), delete old key
+            # If alias changed (or was auto-renamed), we treat it as a move/rename
             if new_alias != alias:
-                if new_alias in self.directories:
-                    QMessageBox.warning(self, "Error", "A folder with this name already exists.")
-                    return
-                del self.directories[alias]
+                # [Auto-Rename] Handle duplicates for the NEW alias
+                original_alias = new_alias
+                counter = 2
+                while new_alias in self.directories:
+                     # Check if we collided with OURSELVES (unlikely in edit, but safe)
+                     if new_alias == alias: break 
+                     new_alias = f"{original_alias} ({counter})"
+                     counter += 1
                 
-            self.directories[new_alias] = {"path": new_path, "mode": new_mode, "model_type": new_type}
+                # Delete old key
+                if alias in self.directories:
+                     del self.directories[alias]
+                
+            self.directories[new_alias] = {
+                "path": new_path, 
+                "mode": new_mode, 
+                "model_type": new_type,
+                "comfy_root": new_c_root
+            }
             self.refresh_table()
 
     def remove_folder(self):

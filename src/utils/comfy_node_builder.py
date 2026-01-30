@@ -21,15 +21,25 @@ class ComfyNodeBuilder:
     }
 
     @staticmethod
-    def create_node_json(file_path, model_type):
+    def create_node_json(file_path, model_type, root_dir=None):
         """
         Generates a JSON string compatible with ComfyUI's clipboard paste format.
         """
-        filename = os.path.basename(file_path)
+        if root_dir:
+            try:
+                # Calculate relative path
+                filename = os.path.relpath(file_path, root_dir)
+                # [Fix] ComfyUI expects standard separators (often forward slashes work best even on Win)
+                # But let's keep it native or just ensure it's not absolute.
+                # Actually, ComfyUI on Windows is fine with backslashes, but we should ensure.
+            except ValueError:
+                filename = os.path.basename(file_path)
+        else:
+            filename = os.path.basename(file_path)
         
         # Special Case: Embeddings -> Just return the embedding string
         if model_type == "embeddings":
-             name_without_ext = os.path.splitext(filename)[0]
+             name_without_ext = os.path.splitext(os.path.basename(filename))[0]
              return f"embedding:{name_without_ext}"
 
         # Standard Node Types
@@ -67,11 +77,11 @@ class ComfyNodeBuilder:
         return payload
 
     @staticmethod
-    def create_html_clipboard(file_path, model_type):
+    def create_html_clipboard(file_path, model_type, root_dir=None):
         """
         Generates the HTML format required by ComfyUI (hidden span with base64 metadata).
         """
-        payload = ComfyNodeBuilder.create_node_json(file_path, model_type)
+        payload = ComfyNodeBuilder.create_node_json(file_path, model_type, root_dir)
         if isinstance(payload, str) and payload.startswith("embedding:"):
             # Embeddings are just text
             return payload, "text/plain"

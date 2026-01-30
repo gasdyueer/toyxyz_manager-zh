@@ -182,7 +182,12 @@ class ModelManagerWidget(BaseManagerWidget):
                                  f"Model Type is not configured for '{current_root_alias}'.\nPlease set it in Settings -> Registered Folders.")
              return
             
-        data, mime_type = ComfyNodeBuilder.create_html_clipboard(self.current_path, model_type)
+        # [Feature] Support ComfyUI Root Override
+        root_path = folder_config.get("comfy_root", "")
+        if not root_path:
+            root_path = folder_config.get("path", "")
+            
+        data, mime_type = ComfyNodeBuilder.create_html_clipboard(self.current_path, model_type, root_path)
         print(f"[DEBUG] Copy Node Payload ({mime_type}): {data}") 
         
         clipboard = QApplication.clipboard()
