@@ -47,7 +47,7 @@ CONFIG_FILE = os.path.join(BASE_DIR, "manager_config.json")
 CACHE_DIR_NAME = os.path.join(BASE_DIR, "cache")
 
 # Extension Definitions
-EXT_MODEL = {".ckpt", ".pt", ".bin", ".safetensors", ".gguf"}
+EXT_MODEL = {".ckpt", ".pt", ".bin", ".safetensors", ".gguf", ".pth"}
 EXT_WORKFLOW = {".json"}
 EXT_PROMPT = {".txt", ".json"} 
 

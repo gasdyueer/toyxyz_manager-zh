@@ -168,6 +168,18 @@ class ModelManagerWidget(BaseManagerWidget):
     # === Interaction Logic ===
 
     def copy_comfy_node(self):
+        """
+        [Role]
+        Handles the 'Copy Node' button click event.
+        It retrieves the current file path, determines the model type from the folder configuration,
+        and uses ComfyNodeBuilder to creating the clipboard content.
+
+        [Flow]
+        1. Validate selection.
+        2. Get 'model_type' (e.g. checkpoints) from the current folder's config.
+        3. Generate HTML clipboard data.
+        4. Set to System Clipboard.
+        """
         if not self.current_path or not os.path.exists(self.current_path):
             self.show_status_message("No model selected or file not found.", 3000)
             return

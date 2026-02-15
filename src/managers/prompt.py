@@ -54,10 +54,10 @@ class PromptTextEdit(QTextEdit):
         # Calculate height based on document
         doc_height = self.document().size().height()
         
-        # Calculate Max Height (approx 5 lines)
+        # Calculate Max Height (approx 10 lines) - Increased x2
         fm = self.fontMetrics()
         line_height = fm.lineSpacing()
-        max_h = (line_height * 5) + 12 
+        max_h = (line_height * 10) + 12 
         
         # Add minimal buffer for border/padding (4px padding * 2 = 8px + borders)
         # Since document margin is 0, doc_height is just text.
@@ -81,7 +81,7 @@ class PromptTextEdit(QTextEdit):
         
         fm = self.fontMetrics()
         line_height = fm.lineSpacing()
-        max_h = (line_height * 5) + 12
+        max_h = (line_height * 10) + 12
         
         final_height = min(int(doc_height + 10), max_h)
         return final_height
@@ -116,51 +116,51 @@ class PromptListItemWidget(QWidget):
         main_layout.setSpacing(6)
         main_layout.setAlignment(Qt.AlignTop)
         
-        # Positive Row
-        if positive:
-            pos_row = QHBoxLayout()
-            pos_row.setSpacing(10)
-            pos_row.setContentsMargins(0, 0, 0, 0)
-            # Removed setAlignment(Qt.AlignTop) to allow vertical stretching
-            
-            btn_copy_pos = QPushButton("📋")
-            btn_copy_pos.setFixedWidth(28) # Fixed width only
-            btn_copy_pos.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding) # Expand vertically
-            btn_copy_pos.setToolTip("Copy Positive")
-            btn_copy_pos.setCursor(Qt.PointingHandCursor)
-            btn_copy_pos.clicked.connect(lambda: self.copy_requested.emit(self.positive, "Positive"))
-            pos_row.addWidget(btn_copy_pos)
-            
-            self.txt_pos = PromptTextEdit(positive, bg_color="#f9f9f9", border_color="#ddd")
-            self.txt_pos.setObjectName("PromptItemPositive")
-            self.txt_pos.clicked.connect(self._propagate_click)
-            pos_row.addWidget(self.txt_pos, 1) 
-            
-            main_layout.addLayout(pos_row)
+        # Positive Row (Always Show)
+        pos_row = QHBoxLayout()
+        pos_row.setSpacing(10)
+        pos_row.setContentsMargins(0, 0, 0, 0)
+        
+        btn_copy_pos = QPushButton("📋")
+        btn_copy_pos.setFixedWidth(28)
+        btn_copy_pos.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        btn_copy_pos.setToolTip("Copy Positive")
+        btn_copy_pos.setCursor(Qt.PointingHandCursor)
+        btn_copy_pos.clicked.connect(lambda: self.copy_requested.emit(self.positive, "Positive"))
+        pos_row.addWidget(btn_copy_pos)
+        
+        self.txt_pos = PromptTextEdit(positive, bg_color="#f9f9f9", border_color="#ddd")
+        self.txt_pos.setPlaceholderText("Positive Prompt...") # Placeholder for empty
+        self.txt_pos.setObjectName("PromptItemPositive")
+        self.txt_pos.clicked.connect(self._propagate_click)
+        pos_row.addWidget(self.txt_pos, 1) 
+        
+        main_layout.addLayout(pos_row)
 
-        # Negative Row
-        if negative:
-            neg_row = QHBoxLayout()
-            neg_row.setSpacing(10)
-            neg_row.setContentsMargins(0, 0, 0, 0)
-            # Removed setAlignment(Qt.AlignTop)
-            
-            btn_copy_neg = QPushButton("📋")
-            btn_copy_neg.setFixedWidth(28) # Fixed width only
-            btn_copy_neg.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding) # Expand vertically
-            btn_copy_neg.setToolTip("Copy Negative")
-            btn_copy_neg.setCursor(Qt.PointingHandCursor)
-            btn_copy_neg.clicked.connect(lambda: self.copy_requested.emit(self.negative, "Negative"))
-            neg_row.addWidget(btn_copy_neg)
-            
-            self.txt_neg = PromptTextEdit(negative, bg_color="#fff5f5", border_color="#eec")
-            self.txt_neg.setObjectName("PromptItemNegative")
-            self.txt_neg.clicked.connect(self._propagate_click)
-            neg_row.addWidget(self.txt_neg, 1) 
-            
-            main_layout.addLayout(neg_row)
+        # Negative Row (Always Show)
+        neg_row = QHBoxLayout()
+        neg_row.setSpacing(10)
+        neg_row.setContentsMargins(0, 0, 0, 0)
+        
+        btn_copy_neg = QPushButton("📋")
+        btn_copy_neg.setFixedWidth(28)
+        btn_copy_neg.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        btn_copy_neg.setToolTip("Copy Negative")
+        btn_copy_neg.setCursor(Qt.PointingHandCursor)
+        btn_copy_neg.clicked.connect(lambda: self.copy_requested.emit(self.negative, "Negative"))
+        neg_row.addWidget(btn_copy_neg)
+        
+        self.txt_neg = PromptTextEdit(negative, bg_color="#fff5f5", border_color="#eec")
+        self.txt_neg.setPlaceholderText("Negative Prompt...") # Placeholder for empty
+        self.txt_neg.setObjectName("PromptItemNegative")
+        self.txt_neg.clicked.connect(self._propagate_click)
+        neg_row.addWidget(self.txt_neg, 1) 
+        
+        main_layout.addLayout(neg_row)
 
-        # Tags
+        # Tags (Show if exists, or maybe just hidden if empty?) 
+        # Requirement is about 'Empty Prompt' label. 
+        # If tags exist, show them.
         if tags:
             tag_str = ", ".join(tags)
             self.lbl_tags = QLabel(f"Tags: {tag_str}")
@@ -168,16 +168,12 @@ class PromptListItemWidget(QWidget):
             self.lbl_tags.setObjectName("PromptTags")
             main_layout.addWidget(self.lbl_tags)
 
-        if not positive and not negative:
-            lbl_empty = QLabel("(Empty Prompt)")
-            lbl_empty.setAlignment(Qt.AlignCenter)
-            lbl_empty = QLabel("(Empty Prompt)")
-            lbl_empty.setAlignment(Qt.AlignCenter)
-            lbl_empty.setObjectName("PromptEmpty")
-            main_layout.addWidget(lbl_empty)
             
         # Size Policy
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
+        
+        # [Enhancement] Enforce minimum height for the whole widget
+        self.setMinimumHeight(120) # Approx 2x the original visual feel for empty/small items
 
     # ... (rest of methods)
 
@@ -190,13 +186,13 @@ class PromptListItemWidget(QWidget):
         
         total_h = 4 # Top margin
         
-        if self.positive:
+        if True: # Always show Positive now
             t_h = self.txt_pos.get_height_for_width(text_avail_width)
             row_h = max(28, t_h)
             total_h += row_h
         
-        if self.negative:
-            if self.positive: total_h += 6 # Spacing
+        if True: # Always show Negative now
+            total_h += 6 # Spacing
             t_h = self.txt_neg.get_height_for_width(text_avail_width)
             row_h = max(28, t_h)
             total_h += row_h
@@ -212,7 +208,9 @@ class PromptListItemWidget(QWidget):
                 total_h += self.lbl_tags.heightForWidth(lbl_w)
                 
         total_h += 4 # Bottom margin
-        return total_h
+        
+        # [Enhancement] Enforce minimum height here too
+        return max(total_h, 120)
 
     def _propagate_click(self):
         # Emit clicked signal so parent can handle selection

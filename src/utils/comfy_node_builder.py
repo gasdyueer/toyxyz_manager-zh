@@ -4,10 +4,18 @@ import base64
 
 class ComfyNodeBuilder:
     """
+    [Role]
     Helper class to generate ComfyUI Node JSON structure for clipboard copy/paste.
-    Similar to how ComfyUI-Model-Manager does it.
+    It bridges the gap between the file manager and ComfyUI by creating a node representation
+    that ComfyUI can recognize and paste directly into the canvas.
+
+    [How it works]
+    1. Maps internal model types (e.g., 'checkpoints') to ComfyUI class names (e.g., 'CheckpointLoaderSimple').
+    2. Constructs a JSON object representing the node with the selected file pre-selected.
+    3. Encodes this JSON into a specific HTML format that ComfyUI's clipboard handler expects.
     """
 
+    # Mapping from internal folder types to ComfyUI Node Class Names
     NODE_TYPE_MAPPING = {
         "checkpoints": "CheckpointLoaderSimple",
         "loras": "LoraLoaderModelOnly",
@@ -23,7 +31,16 @@ class ComfyNodeBuilder:
     @staticmethod
     def create_node_json(file_path, model_type, root_dir=None):
         """
-        Generates a JSON string compatible with ComfyUI's clipboard paste format.
+        [Logic]
+        Generates the raw JSON payload for a single ComfyUI node.
+        
+        Args:
+            file_path: Absolute path to the model file.
+            model_type: The category of the model (used to determine node type).
+            root_dir: Optional root directory to calculate relative paths (if needed).
+            
+        Returns:
+            dict: A dictionary structure matching ComfyUI's serialized node format.
         """
         if root_dir:
             try:
@@ -50,7 +67,8 @@ class ComfyNodeBuilder:
             return filename
 
         # Construct Node Data
-        # We create a single node structure.
+        # We create a single node structure with 'widgets_values' set to the filename.
+        # This ensures that when the node is created, it automatically selects this specific model file.
         
         node_data = {
             "id": 0,
@@ -63,7 +81,7 @@ class ComfyNodeBuilder:
             "inputs": [],
             "outputs": [],
             "properties": {},
-            "widgets_values": [filename] 
+            "widgets_values": [filename] # [Critical] Pre-selects the file in the node's dropdown
         }
         
         # ComfyUI clipboard format (minimal)
@@ -79,7 +97,19 @@ class ComfyNodeBuilder:
     @staticmethod
     def create_html_clipboard(file_path, model_type, root_dir=None):
         """
-        Generates the HTML format required by ComfyUI (hidden span with base64 metadata).
+        [Logic]
+        ComfyUI does not use plain JSON for pasting nodes. It inspects the clipboard for
+        a specific HTML structure containing the JSON data encoded in Base64.
+        
+        Format:
+        <html><body>
+        <!--StartFragment-->
+        <span data-metadata="BASE64_ENCODED_JSON"></span>
+        <!--EndFragment-->
+        </body></html>
+        
+        Returns:
+            tuple: (html_string, mime_type)
         """
         payload = ComfyNodeBuilder.create_node_json(file_path, model_type, root_dir)
         if isinstance(payload, str) and payload.startswith("embedding:"):
