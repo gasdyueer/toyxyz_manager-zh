@@ -1,85 +1,96 @@
 # ToyXYZ Manager (ComfyUI Asset Manager)
 
-**ToyXYZ Manager** is a powerful desktop application designed to manage your ComfyUI assets, including **Models**, **Workflows**, and **Example Images**. It provides a convenient interface to browse, search, and manage metadata for your local AI generation resources.
-
-![Application Screenshot](docs/screenshot.png) _(Placeholder)_
+**ToyXYZ Manager** is a powerful local asset management tool for ComfyUI. It systematically manages models, workflows, and prompts scattered across complex folder structures and automatically syncs metadata with external resources like Civitai and Hugging Face.
 
 ## ✨ Key Features
 
-### 1. Model Management
+### 1. 📦 Model Manager
 
-- **Centralized View**: Browse checkpoints, LoRAs, and embeddings from multiple directories.
-- **Civitai Integration**: Automatically fetch metadata and thumbnails for local models.
-- **Notes**: Add personal notes to any model without modifying the file itself.
-- **Lazy Loading**: Optimized for performance, handling thousands of files smoothly.
+- **Extensive Model Support**: Supports all model types used in ComfyUI, including Checkpoints, LoRAs, VAEs, Embeddings, ControlNets, and Upscale Models.
+- **Smart Preview**: Plays video (.mp4, .webm) and GIF thumbnails in addition to standard image formats (.png, .jpg, .webp).
+- **Auto Match Metadata**:
+  - Calculates file hashes to find exact model information from Civitai.
+  - Automatically fetches and saves Trigger Words, version descriptions, and creator info.
+- **ComfyUI Integration (Copy Node)**:
+  - Select a model and click `📋 Copy Node` to copy it to your clipboard as a node ready to be pasted into ComfyUI.
+- **Download Manager**:
+  - Download models directly using Civitai or Hugging Face URLs.
+  - Handles file name collisions with options to rename or overwrite.
 
-### 2. Workflow Management
+### 2. 🔄 Workflow Manager
 
-- **JSON Viewer**: Preview workflow JSON files directly within the app.
-- **Drag & Drop**: Drag a workflow JSON from the list directly into ComfyUI.
-- **Metadata Association**: Link example images and notes to specific workflows.
+- **JSON Visualization**: Preview the structure and content of workflow files (.json).
+- **Drag & Drop**: Drag workflow files from the manager directly into the ComfyUI window to load them instantly.
 
-### 3. Example & Prompt Gallery
+### 3. 📝 Prompt Manager
 
-- **Metadata Reader**:
-  - Automatically parses generation parameters (Positive/Negative prompt, Steps, Sampler, etc.) from images.
-  - Supports **PNG Info** (Standard) and **JPEG Exif UserComment** with robust encoding detection (fixes Mojibake issues).
-- **Metadata Writer**: Edits tags and parameters, automatically converting non-standard formats (JPEG) to standard PNG text chunks for compatibility.
-- **Gallery**: Manage example images for each model or workflow.
+- **Prompt Library**: Save and manage frequently used Positive and Negative prompts.
+- **Tags & Search**: Organize prompts with tags for quick retrieval.
+- **One-Click Copy**: Click or right-click items in the list to copy prompt sets to the clipboard.
 
-### 4. Global Search
+### 4. 🔍 Powerful Search & Filter
 
-- **On-Demand Search**: Quickly search for files across all registered directories.
-- **Flat View**: View search results in a simple list with full path context.
-- **Deep Scan**: Recursively searches through subdirectories.
+- **Real-time Filtering**: Instantly filters files within the current folder.
+- **Deep Search**: Recursively searches for files across all subdirectories.
+- **Extension Filter**: Cleanly displays only relevant file types based on configuration.
 
-## 🛠️ Installation & Setup
+## 🛠️ Installation & Usage
 
-### Prerequisites
+### Requirements
 
-- Python 3.10+ (Recommended)
-- Windows (Tested)
+- **OS**: Windows 10/11 (Recommended)
+- **Python**: 3.10 or higher
+- **Dependencies**: `PySide6`, `requests`, `Pillow`, `markdown`, `markdownify`
 
-### Quick Start
+### Installation Steps
 
-1.  **Clone the repository**
+1. Clone or download the repository.
 
-    ```bash
-    git clone https://github.com/yourusername/toyxyz-manager.git
-    cd toyxyz-manager
-    ```
+   ```bash
+   git clone https://github.com/toyxyz/toyxyz_manager.git
+   cd toyxyz_manager
+   ```
 
-2.  **Setup Environment**
-    Run the setup script to create a virtual environment and install dependencies.
+2. Create and activate a virtual environment (Recommended).
 
-    ```cmd
-    setup_env.bat
-    ```
+   ```bash
+   python -m venv venv
+   .\venv\Scripts\activate
+   ```
 
-3.  **Run the Application**
-    - **Method 1 (Console hidden)**: Double-click `launcher.vbs`
-    - **Method 2 (Console visible)**: Double-click `run.bat`
+3. Install dependencies.
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## ⚙️ Configuration
+### Running the App
 
-On first launch, click the **Settings** button to configure your directory paths:
+- Run the included `run.bat` file or execute the following command in your terminal:
+  ```bash
+  python main.py
+  ```
 
-- **Root Directories**: Add the paths where your models and workflows are stored.
-- **Cache Path**: (Optional) Set a custom location for thumbnails and metadata cache.
+## ⚙️ Configuration Guide
 
-## 🏗️ Tech Stack
+After launching the app, click the **Settings** icon in the top-right corner to register your folders.
 
-- **GUI**: [PySide6](https://pypi.org/project/PySide6/) (Qt for Python)
-- **Image Processing**: [Pillow](https://python-pillow.org/)
-- **Core Logic**: Python Standard Library (`json`, `os`, `re`, `threading`)
+1. **Category**: Enter an alias for the folder (e.g., `My Checkpoints`).
+2. **Path**: Specify the actual folder path where your models are stored.
+3. **Mode**: Select the purpose of the folder.
+   - `model`: For general model files (Checkpoints, LoRAs, etc.)
+   - `workflow`: For ComfyUI workflow JSON files.
+   - `prompt`: For prompt data.
+4. **Model Type**: (For `model` mode) Select the specific model type. This is crucial for the `Copy Node` feature to work correctly.
+   - Examples: `checkpoints`, `loras`, `embeddings`, `vae`, etc.
+5. **Comfy Root**: (Optional) The root directory of your ComfyUI installation. Required for relative path calculations.
 
-## 📝 Metadata Handling Policy
+## 💡 Tips
 
-To ensure maximum compatibility with the AI art ecosystem (WebUI, ComfyUI, Civitai):
-
-- **Reading**: Supports robust parsing of both PNG Text Chunks and JPEG Exif.
-- **Saving**: All metadata edits are saved as **PNG Text Chunks**. If you edit a JPEG file, it will be converted to PNG to preserve the metadata standard.
+- **Change Thumbnail**: Drag and drop an image or video onto the preview area to automatically register it as the model's thumbnail (e.g., `filename.preview.png`).
+- **Notepad**: Use the `Note` tab in the right panel to write notes in Markdown for each file. Automatically populated when fetching metadata.
+- **Example Images**: Manage example images generated by the model in the `Example` tab.
+- **Quick Refresh**: Click the `🔄` button to refresh the list if folder contents have changed.
 
 ## 📄 License
 
-[MIT License](LICENSE)
+This project is licensed under the MIT License. Feel free to modify and distribute.
