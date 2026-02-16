@@ -719,7 +719,7 @@ class TaskMonitorWidget(QWidget):
             if not item: continue
             
             status = item.text().lower()
-            if any(s in status for s in ["done", "processed", "skipped", "error", "cached", "complete"]):
+            if any(s in status for s in ["done", "processed", "skipped", "error", "cached", "complete", "not found", "fail"]):
                 self.table.removeRow(r)
         
         self.row_map = {}
@@ -764,7 +764,7 @@ class FolderDialog(QDialog):
         form.addRow(self.lbl_comfy_root, cpath_box)
         
         self.combo_mode = QComboBox()
-        self.combo_mode.addItems(["model", "workflow", "prompt"])
+        self.combo_mode.addItems(["model", "gallery", "workflow", "prompt"])
         self.combo_mode.setCurrentText(mode)
         form.addRow("Mode:", self.combo_mode)
 

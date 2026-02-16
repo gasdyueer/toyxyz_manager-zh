@@ -15,6 +15,30 @@ from ..ui_components import ZoomWindow, MarkdownNoteWidget
 from .example import ExampleTabWidget
 from ..core import VIDEO_EXTENSIONS, PREVIEW_EXTENSIONS, calculate_structure_path
 
+class SortableTreeItem(QTreeWidgetItem):
+    def __lt__(self, other):
+        # 1. Always prioritize Folders over Files
+        # 'folder' < 'file' ?
+        # We want folders to appear FIRST. 
+        # In Ascending order, we want Small < Large. So Folder < File.
+        # In Descending order, QTreeWidget reverses the result. So File < Folder?
+        # This means in Descending, Files would come first.
+        # To strictly keep folders on top is tricky without custom proxy model.
+        # For now, let's just make sure "Folder" < "File" so in standard Ascending sort (default), it works.
+        
+        my_type = self.data(0, Qt.UserRole + 1)
+        other_type = other.data(0, Qt.UserRole + 1)
+        
+        if my_type != other_type:
+            # If I am folder (0) and other is file (1)
+            # We want me < other
+            return my_type == "folder"
+            
+        # Same type: sort by text (case insensitive)
+        t1 = self.text(0).lower()
+        t2 = other.text(0).lower()
+        return t1 < t2
+
 class BaseManagerWidget(QWidget):
     def __init__(self, directories: Dict[str, Any], extensions, app_settings: Dict[str, Any] = None):
         super().__init__()
@@ -27,6 +51,8 @@ class BaseManagerWidget(QWidget):
         self.image_loader_thread.start()
         self._init_base_ui()
         self.update_combo_list()
+        
+    # ... (rest of class)
 
     def get_debug_info(self) -> Dict[str, Any]:
         """Returns debug statistics for the manager."""
@@ -119,6 +145,8 @@ class BaseManagerWidget(QWidget):
         self.tree.setColumnWidth(3, 70)
         # self.tree.setStyleSheet(...) -> Moved to QSS
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.tree.setSortingEnabled(True) # [Fix] Enable Sorting
+        self.tree.sortByColumn(0, Qt.AscendingOrder) # Default sort by Name
         self.tree.itemSelectionChanged.connect(self.on_tree_select)
         self.tree.itemExpanded.connect(self.on_tree_expand)
         
@@ -214,6 +242,15 @@ class BaseManagerWidget(QWidget):
                      self.indexing_scanner.wait()
              except RuntimeError: pass
 
+        # [Fix] Stop all active partial scanners to prevent zombie signals
+        if hasattr(self, 'active_scanners'):
+            for scanner in list(self.active_scanners):
+                try:
+                    if scanner.isRunning():
+                        scanner.stop()
+                except RuntimeError: pass
+            self.active_scanners.clear()
+
         self.tree.clear()
         self.filter_edit.clear()
         
@@ -225,8 +262,10 @@ class BaseManagerWidget(QWidget):
         self.active_thumb_workers = set()
         
         # 1. UI Scanner (Fast, Non-Recursive)
+        self.tree.setSortingEnabled(False) # [Optimization] Disable sorting for entire scan
         self.scanner = FileScannerWorker(path, self.extensions, recursive=False)
         self.scanner.batch_ready.connect(self._on_batch_ready)
+        self.scanner.finished.connect(self._on_scan_finished) # [Optimization] New slot
         self.scanner.finished.connect(self.scanner.deleteLater) 
         self.scanner.start()
         
@@ -264,13 +303,24 @@ class BaseManagerWidget(QWidget):
              # Since initial scan is recursive=False, we always populate root.
              pass
         
+        # [Optimization] Sorting is disabled globally during scan
+        # self.tree.setSortingEnabled(False) 
+        
         # Construct data dict as expected by _populate_item
         root_data = {"dirs": dirs, "files": files}
         self._populate_item(parent_item, current_dir, root_data)
 
         self.tree.setUpdatesEnabled(True)
+        # [Optimization] Sorting re-enabled only at end of scan
+        # self.tree.setSortingEnabled(True)
+
+    def _on_scan_finished(self):
+        """Called when INITIAL UI scan is complete."""
+        self.tree.setSortingEnabled(True)
+        # self.show_status_message(f"Scan complete. {self.tree.topLevelItemCount()} items.")
 
     def _populate_item(self, parent_item, current_path, data):
+        # ... (Unchanged logic, just ensure no sorting calls here)
         # 1. Add Folders
         dirs = data.get("dirs", [])
         # Sort folders by name
@@ -278,13 +328,13 @@ class BaseManagerWidget(QWidget):
         
         for d_name in dirs:
             d_path = os.path.join(current_path, d_name)
-            d_item = QTreeWidgetItem(parent_item)
+            d_item = SortableTreeItem(parent_item) # [Fix] Use SortableItem
             d_item.setText(0, f"📁 {d_name}")
             d_item.setData(0, Qt.UserRole, d_path)
             d_item.setData(0, Qt.UserRole + 1, "folder")
             
             # Add Dummy Item to enable expansion
-            dummy = QTreeWidgetItem(d_item)
+            dummy = QTreeWidgetItem(d_item) # Dummy doesn't need to be sortable, or maybe yes?
             dummy.setText(0, "Loading...")
             dummy.setData(0, Qt.UserRole, "DUMMY")
 
@@ -294,7 +344,7 @@ class BaseManagerWidget(QWidget):
         files.sort(key=lambda x: x['name'].lower())
         
         for f in files:
-            f_item = QTreeWidgetItem(parent_item)
+            f_item = SortableTreeItem(parent_item) # [Fix] Use SortableItem
             f_item.setText(0, f['name'])
             f_item.setText(1, f['size'])
             f_item.setText(2, f['date'])
@@ -367,9 +417,12 @@ class BaseManagerWidget(QWidget):
             path = item.data(0, Qt.UserRole)
             if not path or not os.path.isdir(path): return
             
+            self.tree.setSortingEnabled(False) # [Optimization] Disable sort for lazy load
+            
             worker = FileScannerWorker(path, self.extensions, recursive=False)
             # Connect to batch signal, reusing the logic to populate THIS item
             worker.batch_ready.connect(lambda p, d, f: self._on_partial_batch_ready(item, p, d, f))
+            worker.finished.connect(lambda: self.tree.setSortingEnabled(True)) # [Optimization] Re-enable
             worker.finished.connect(worker.deleteLater) # Cleanup thread
             
             # [Fix] Remove from active list when done to prevent accessing deleted objects
@@ -379,13 +432,28 @@ class BaseManagerWidget(QWidget):
             worker.start()
 
     def _on_partial_batch_ready(self, parent_item, current_path, dirs, files):
-        # Note: This slot keeps the worker alive until finished? 
-        # Actually worker signals are connected to this.
-        
-        self.tree.setUpdatesEnabled(False)
-        root_data = {"dirs": dirs, "files": files}
-        self._populate_item(parent_item, current_path, root_data)
-        self.tree.setUpdatesEnabled(True)
+        # [Fix] Critical Crash Prevention:
+        # If the parent_item (QTreeWidgetItem) has been deleted by a refresh/clear operation
+        # while this signal was in flight, accessing it will raise RuntimeError.
+        try:
+             # Just checking if 'parent_item' is valid.
+             # Accessing any method on a deleted C++ object raises RuntimeError.
+             if not parent_item or parent_item.childCount() < 0: 
+                 return
+                 
+             self.tree.setUpdatesEnabled(False)
+             # self.tree.setSortingEnabled(False) # [Optimization] Handled in on_tree_expand
+            
+             root_data = {"dirs": dirs, "files": files}
+             self._populate_item(parent_item, current_path, root_data)
+            
+             self.tree.setUpdatesEnabled(True)
+             # self.tree.setSortingEnabled(True) # [Optimization] Handled in on_tree_expand finished
+        except RuntimeError:
+             # "wrapped C/C++ object of type SortableTreeItem has been deleted"
+             # This is expected during rapid refreshes. Ignore.
+             pass
+
 
     # _on_partial_scan_finished REMOVED (Replaced by _on_partial_batch_ready)
 
@@ -460,7 +528,7 @@ class BaseManagerWidget(QWidget):
                 mtime = item_data[3]
             
             name = os.path.basename(path)
-            item = QTreeWidgetItem(self.tree)
+            item = SortableTreeItem(self.tree)
             item.setText(0, name)
             item.setToolTip(0, path) 
             

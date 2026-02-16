@@ -14,6 +14,7 @@ from PIL.PngImagePlugin import PngInfo
 
 from ..core import calculate_structure_path, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, CACHE_DIR_NAME
 from ..ui_components import SmartMediaWidget, ZoomWindow
+from ..ui.metadata_widget import MetadataViewerWidget
 from ..workers import LocalMetadataWorker
 
 class ExampleTabWidget(QWidget):
@@ -115,82 +116,8 @@ class ExampleTabWidget(QWidget):
         self.splitter.addWidget(img_widget)
         
         # [Bottom] Metadata Area
-        meta_widget = QWidget()
-        meta_layout = QVBoxLayout(meta_widget)
-        meta_layout.setContentsMargins(0,0,0,0)
-        
-        # Positive Prompt
-        pos_header = QHBoxLayout()
-        pos_header.addWidget(QLabel("Positive:"))
-        btn_copy_pos = QPushButton("📋")
-        btn_copy_pos.setFixedWidth(30)
-        btn_copy_pos.setToolTip("Copy Positive Prompt")
-        btn_copy_pos.clicked.connect(lambda: self._copy_to_clipboard(self.txt_pos.toPlainText(), "Positive Prompt"))
-        pos_header.addWidget(btn_copy_pos)
-        pos_header.addStretch()
-        meta_layout.addLayout(pos_header)
-        
-        self.txt_pos = QTextEdit()
-        self.txt_pos.setPlaceholderText("Positive Prompt")
-        meta_layout.addWidget(self.txt_pos, 1)
-        
-        # Negative Prompt
-        neg_header = QHBoxLayout()
-        neg_header.addWidget(QLabel("Negative:"))
-        btn_copy_neg = QPushButton("📋")
-        btn_copy_neg.setFixedWidth(30)
-        btn_copy_neg.setToolTip("Copy Negative Prompt")
-        btn_copy_neg.clicked.connect(lambda: self._copy_to_clipboard(self.txt_neg.toPlainText(), "Negative Prompt"))
-        neg_header.addWidget(btn_copy_neg)
-        neg_header.addStretch()
-        meta_layout.addLayout(neg_header)
-        
-        self.txt_neg = QTextEdit()
-        self.txt_neg.setPlaceholderText("Negative Prompt")
-        self.txt_neg.setObjectName("ExampleNegativePrompt")
-        meta_layout.addWidget(self.txt_neg, 1)
-        
-        # Generation Settings
-        self.param_widgets = {}
-        grid_group = QGroupBox("Generation Settings")
-        grid_layout = QGridLayout(grid_group)
-        params = ["Steps", "Sampler", "CFG", "Seed", "Schedule"]
-        for i, p in enumerate(params):
-            grid_layout.addWidget(QLabel(p), 0, i)
-            le = QLineEdit()
-            self.param_widgets[p] = le
-            grid_layout.addWidget(le, 1, i)
-            
-        meta_layout.addWidget(grid_group)
-        
-        # Resources (Civitai)
-        # Metadata Tabs (Model / Etc)
-        self.meta_tabs = QTabWidget()
-        
-        # Tab 1: Model
-        self.tab_model = QWidget()
-        tab_model_layout = QVBoxLayout(self.tab_model)
-        tab_model_layout.setContentsMargins(5,5,5,5)
-        self.txt_resources = QTextEdit()
-        self.txt_resources.setPlaceholderText("Civitai resources info...")
-        self.txt_resources.setMaximumHeight(100)
-        tab_model_layout.addWidget(self.txt_resources)
-        self.meta_tabs.addTab(self.tab_model, "Model")
-        
-        # Tab 2: Etc
-        self.tab_etc = QWidget()
-        tab_etc_layout = QVBoxLayout(self.tab_etc)
-        tab_etc_layout.setContentsMargins(5,5,5,5)
-        self.txt_etc = QTextEdit()
-        self.txt_etc.setPlaceholderText("Extra parameters (NovelAI, Notes, etc)...")
-        self.txt_etc.setReadOnly(True) # Mostly read-only for now
-        self.txt_etc.setMaximumHeight(100)
-        tab_etc_layout.addWidget(self.txt_etc)
-        self.meta_tabs.addTab(self.tab_etc, "Etc")
-        
-        meta_layout.addWidget(self.meta_tabs)
-        
-        self.splitter.addWidget(meta_widget)
+        self.meta_viewer = MetadataViewerWidget()
+        self.splitter.addWidget(self.meta_viewer)
         
         main_layout.addWidget(self.splitter)
         self.splitter.setSizes([500, 300])
@@ -393,57 +320,8 @@ class ExampleTabWidget(QWidget):
             return
 
         try:
-            # Build parameters string
-            pos = self.txt_pos.toPlainText()
-            neg = self.txt_neg.toPlainText()
-            
-            param_parts = []
-            rev_map = {"CFG": "CFG scale", "Steps": "Steps", "Sampler": "Sampler", "Seed": "Seed", "Schedule": "Schedule type", "Model": "Model"}
-            for k, w in self.param_widgets.items():
-                v = w.text().strip()
-                if v:
-                    pk = rev_map.get(k, k)
-                    param_parts.append(f"{pk}: {v}")
-            
-            # Extract Model from Resources if manually edited
-            res_content = self.txt_resources.toPlainText().strip()
-            # If standard Model param wasn't in param_parts (which it isn't anymore as widget is gone)
-            # We look for [checkpoint] Name
-            # Simple assumption: If line starts with [checkpoint], it's the model.
-            model_found = False
-            for line in res_content.split('\n'):
-                line = line.strip()
-                if line.lower().startswith("[checkpoint]"):
-                    # Extract name
-                    # Format: [checkpoint] Name (Version)
-                    # We want: Model: Name (Version)
-                    # Just strip [checkpoint] prefix
-                    model_val_extracted = line[len("[checkpoint]"):].strip()
-                    if model_val_extracted:
-                        param_parts.append(f"Model: {model_val_extracted}")
-                        model_found = True
-                    break # Assume one model
-            
-            # Also preserve Model hash if we ever had one? 
-            # We don't have visual widget for hash, so usually relies on preservation logic or re-parsing.
-            # But currently we only reconstruct from UI.
-            
-            full_text = pos
-            if neg: full_text += f"\nNegative prompt: {neg}"
-            if param_parts: full_text += "\n" + ", ".join(param_parts)
-
-            # Append Resources
-            res_content = self.txt_resources.toPlainText().strip()
-            if res_content:
-                # Check if resource is JSON or formatted text
-                if res_content.startswith('[{"') or "Civitai resources:" in res_content:
-                     full_text += f", {res_content}" # Raw JSON
-                else:
-                     # Filter out [checkpoint] lines (already extracted as Model param)
-                     filtered_lines = [l for l in res_content.split('\n') if not l.strip().lower().startswith("[checkpoint]")]
-                     cleaned_res = "\n".join(filtered_lines).strip()
-                     if cleaned_res:
-                         full_text += f"\nResources:\n{cleaned_res}"
+            # Reconstruct parameters from UI
+            full_text = self.meta_viewer.get_formatted_parameters()
              
             # Open Image and Update Metadata
             img = Image.open(path)
@@ -524,7 +402,6 @@ class ExampleTabWidget(QWidget):
             
         try:
             # Update Status Icon based on standardized type
-            # Update Status Icon based on standardized type (User Request: Only Show Comfy Workflow Status)
             if meta["type"] == "comfy":
                 self.lbl_wf_status.setText("Workflow")
                 self.lbl_wf_status.setToolTip("Contains ComfyUI Workflow (JSON)")
@@ -533,297 +410,30 @@ class ExampleTabWidget(QWidget):
                 self.lbl_wf_status.setText("no workflow")
                 self.lbl_wf_status.setToolTip("No ComfyUI workflow metadata found")
                 self.lbl_wf_status.setObjectName("WorkflowStatus_Normal")
-                
-                # Force style reload since ObjectName changed
-                self.lbl_wf_status.style().unpolish(self.lbl_wf_status)
-                self.lbl_wf_status.style().polish(self.lbl_wf_status)
-                
-            # Populate UI based on standardized data
             
-            # Special Case: NovelAI
-            # NAI LSB data ("type": "novelai") is comprehensive and structured. 
-            # We prefer this over any Exif text which might be generic.
-
-            # Prioritize User-Edited/Hybrid Text Metadata
-            # If we have raw_text (A1111 style) and it looks valid (contains "Steps:" or "Sampler:"), 
-            # we prefer using that for display as it represents the most current/edited state.
-            if meta.get("raw_text", "") and ("Steps:" in meta["raw_text"] or "Sampler:" in meta["raw_text"]):
-                 try:
-                    self._display_parameters(meta["raw_text"])
-                 except Exception as e:
-                    logging.debug(f"Hybrid parse error: {e}")
-
-            # Special Case: NovelAI
-            # NAI LSB data ("type": "novelai") is comprehensive and structured. 
-            elif meta["type"] == "novelai":
-                p = meta["main"]
-                key_map = {
-                    "steps": "Steps", "sampler": "Sampler", "cfg": "CFG", "seed": "Seed", "schedule": "Schedule"
-                }
-                for k_std, k_ui in key_map.items():
-                    if p.get(k_std): self.param_widgets[k_ui].setText(str(p[k_std]))
-                    
-                self.txt_pos.setText(meta["prompts"]["positive"])
-                self.txt_neg.setText(meta["prompts"]["negative"])
-                
-                # Etc / Tags
-                etc_lines = []
-                for k, v in meta["etc"].items():
-                    etc_lines.append(f"{k}: {v}")
-                self.txt_etc.setText("\n".join(etc_lines))
-                    
-            elif meta["type"] == "comfy":
-                # Graph Only (No text block)
-                p = meta["main"]
-                key_map = {
-                    "steps": "Steps", "sampler": "Sampler", "cfg": "CFG", "seed": "Seed", "schedule": "Schedule"
-                }
-                for k_std, k_ui in key_map.items():
-                    if p.get(k_std): self.param_widgets[k_ui].setText(str(p[k_std]))
-                    
-                # Model/Resources
-                m = meta["model"]
-                lines = []
-                if m.get("checkpoint"): lines.append(f"[checkpoint] {m['checkpoint']}")
-                for lora in m.get("loras", []): lines.append(f"[lora] {lora}")
-                self.txt_resources.setText("\n".join(lines))
-                
-                # Prompts
-                self.txt_pos.setText(meta["prompts"]["positive"])
-                self.txt_neg.setText(meta["prompts"]["negative"])
-                
-            elif meta["type"] == "simpai":
-                 # Generic JSON from UserComment (SimpAI etc.)
-                 p = meta["main"]
-                 key_map = {
-                    "steps": "Steps", "sampler": "Sampler", "cfg": "CFG", "seed": "Seed", "schedule": "Schedule"
-                 }
-                 for k_std, k_ui in key_map.items():
-                    if p.get(k_std): self.param_widgets[k_ui].setText(str(p[k_std]))
-                 
-                 # SimpAI stores prompts?? Unknown from debug output.
-                 # Assuming generic map if available, else empty.
-                 self.txt_pos.setText(meta["prompts"]["positive"])
-                 self.txt_neg.setText(meta["prompts"]["negative"])
-                 
-                 # Resources
-                 if meta["model"]["checkpoint"]:
-                     self.txt_resources.setText(f"[checkpoint] {meta['model']['checkpoint']}")
-                 
-                 # ETC
-                 etc_lines = []
-                 for k, v in meta["etc"].items():
-                     etc_lines.append(f"{k}: {v}")
-                 self.txt_etc.setText("\n".join(etc_lines))
-
-            else:
-                 # Fallback: Last Resort Text
-                 if meta.get("raw_text", ""):
-                     try: self._display_parameters(meta["raw_text"])
-                     except: pass
-                
+            # Force style reload
+            self.lbl_wf_status.style().unpolish(self.lbl_wf_status)
+            self.lbl_wf_status.style().polish(self.lbl_wf_status)
+            
+            # Populate UI
+            self.meta_viewer.set_metadata(meta)
+            
         except Exception as e: 
-            # Non-fatal
             logging.warning(f"Meta parse error: {e}")
-            # Clear etc in case of partial failure
-            self.txt_etc.clear()
-
-    def _display_parameters(self, text):
-        import re
-        pos = ""; neg = ""; params = ""
-        
-        # Regex split for "Negative prompt:" (case-insensitive)
-        parts = re.split(r"Negative prompt:", text, flags=re.IGNORECASE)
-        
-        if len(parts) > 1:
-            pos = parts[0].strip()
-            # The rest might contain Steps, so we look into the last part
-            remainder = parts[1]
-        else:
-            # Check if "Steps:" exists directly without negative prompt
-            steps_match = re.search(r"\bSteps:", text, flags=re.IGNORECASE)
-            if steps_match:
-                pos = text[:steps_match.start()].strip()
-                remainder = text[steps_match.start():]
-            else:
-                pos = text; remainder = ""
-        
-        # Now split remainder for "Steps:"
-        steps_parts = re.split(r"\bSteps:", remainder, flags=re.IGNORECASE, maxsplit=1)
-        if len(steps_parts) > 1:
-            neg = steps_parts[0].strip()
-            params = "Steps:" + steps_parts[1]
-        else:
-            neg = remainder.strip()
-            
-        self.txt_pos.setText(pos)
-        self.txt_neg.setText(neg) 
-        
-        # Robust Parsing
-        self._raw_civitai_resources = None # Clear previous
-        p_map = self._parse_parameters_robust(params)
-        
-        # UI Mapping
-        key_map = {
-            "steps": "Steps", 
-            "sampler": "Sampler", 
-            "cfg scale": "CFG", 
-            "seed": "Seed", 
-            "model": "Model", 
-            "model hash": "Model", # Sometimes it's Model hash
-            "schedule type": "Schedule"
-        }
-        
-        # Special handling for Model/Resources
-        model_val = ""
-        
-        if "model" in p_map: model_val = p_map["model"]
-        elif "model hash" in p_map: model_val = p_map["model hash"]
-        
-        # Format Resources List
-        formatted_lines = []
-        checkpoint_converted = False
-
-        # Handle Civitai Resources
-        if "civitai resources" in p_map:
-            raw_res = p_map["civitai resources"]
-            self._raw_civitai_resources = raw_res # Keep raw for preservation
-            try:
-                res_list = json.loads(raw_res)
-                if isinstance(res_list, list):
-                    for item in res_list:
-                        itype = item.get("type", "unknown")
-                        iname = item.get("modelName", "Unknown")
-                        iver = item.get("modelVersionName", "")
-                        
-                        line = f"[{itype}] {iname}"
-                        if iver: line += f" ({iver})"
-                        if itype != "checkpoint":
-                             weight = item.get("weight", 1.0)
-                             line += f" : {weight}"
-                        
-                        formatted_lines.append(line)
-                        if itype == "checkpoint": checkpoint_converted = True
-                        
-            except json.JSONDecodeError:
-                formatted_lines.append(raw_res) # Fallback
-        
-        # Handle generic Resources (from manual saves)
-        elif "resources" in p_map:
-             formatted_lines.append(p_map["resources"])
-        
-        # If no checkpoint found in Civitai resources, but we have Model param
-        if not checkpoint_converted and model_val:
-            formatted_lines.insert(0, f"[checkpoint] {model_val}")
-
-        resources_text = "\n".join(formatted_lines)
-        
-        # Apply Logic to Widgets
-        for k, v in self.param_widgets.items(): v.clear()
-        
-        # Set Model if found -- REMOVED WIDGET
-        # if model_val: self.param_widgets["Model"].setText(model_val)
-        
-        for k_ui in self.param_widgets:
-            # if k_ui == "Model": continue # Handled above
-            
-            # Reverse lookup for other keys
-            for k_map_lower, k_map_ui in key_map.items():
-                if k_map_ui == k_ui and k_map_lower in p_map:
-                    self.param_widgets[k_ui].setText(p_map[k_map_lower])
-                    break
-                    
-        self.txt_resources.setText(resources_text)
-        
-        # Populate Etc with unused keys
-        used_keys = set([k.lower() for k in key_map.keys()]) | {"civitai resources", "resources"}
-        # Note: key_map keys in source code are already lower case in my view (steps, sampler...)
-        # But ensure robust checking
-        used_keys = {
-            "steps", "sampler", "cfg scale", "seed", "model", "model hash", "schedule type",
-            "civitai resources", "resources"
-        }
-        
-        etc_lines = []
-        for k, v in p_map.items():
-            if k not in used_keys:
-                 etc_lines.append(f"{k}: {v}")
-        
-        self.txt_etc.setText("\n".join(etc_lines))
-
-    def _parse_parameters_robust(self, params_str):
-        """
-        Parses the parameter string handling JSON arrays/objects correctly.
-        Returns a dict of lowercased keys -> values.
-        """
-        if not params_str: return {}
-        
-        result = {}
-        in_key = True
-        
-        # State machine
-        buffer = []
-        stack = [] # For [], {}
-        in_quote = False
-        
-        def commit():
-            full_str = "".join(buffer).strip()
-            if not full_str: return
-            
-            # Try to find the first colon that is NOT inside quotes/brackets (simple approach)
-            # Actually, standard format is "Key: Value"
-            if ':' in full_str:
-                k, v = full_str.split(':', 1)
-                result[k.strip().lower()] = v.strip()
-            buffer.clear()
-            
-        for char in params_str:
-            if in_quote:
-                buffer.append(char)
-                if char == '"': in_quote = False
-                continue
-                
-            if char == '"':
-                in_quote = True
-                buffer.append(char)
-                continue
-                
-            if char in "[{":
-                stack.append(char)
-                buffer.append(char)
-                continue
-                
-            if char in "]}":
-                if stack: stack.pop()
-                buffer.append(char)
-                continue
-                
-            if char == ',' and not stack:
-                # Comma at root level -> Splitter
-                commit()
-                continue
-                
-            buffer.append(char)
-            
-        commit() # Commit last part
-        return result
+            self.meta_viewer.txt_etc.setText(f"Error: {e}")
 
     def _clear_meta(self):
-        self.txt_pos.clear()
-        self.txt_neg.clear()
-        for w in self.param_widgets.values(): w.clear()
-        self.txt_resources.clear()
-        self.txt_etc.clear()
-        self._raw_civitai_resources = None
+        self.meta_viewer.clear()
         self.lbl_wf_status.setText("No Workflow")
         self.lbl_wf_status.setObjectName("WorkflowStatus_Neutral")
         self.lbl_wf_status.style().unpolish(self.lbl_wf_status)
         self.lbl_wf_status.style().polish(self.lbl_wf_status)
+        self._raw_civitai_resources = None # Legacy, maybe unused now? keeping safe.
 
-    def _copy_to_clipboard(self, text, name):
-        if text:
-            QApplication.clipboard().setText(text)
-            self.status_message.emit(f"{name} copied to clipboard.")
+    # _display_parameters, _parse_parameters_robust, _copy_to_clipboard REMOVED
+
+
+
 
     # [Memory Optimization]
     def stop_videos(self):

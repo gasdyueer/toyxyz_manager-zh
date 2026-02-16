@@ -13,6 +13,7 @@ from .ui_components import SettingsDialog, TaskMonitorWidget
 from .managers.model import ModelManagerWidget
 from .managers.workflow import WorkflowManagerWidget
 from .managers.prompt import PromptManagerWidget
+from .managers.gallery import GalleryManagerWidget
 
 class ModelManagerWindow(QMainWindow):
     def __init__(self, debug_mode=False):
@@ -157,6 +158,10 @@ class ModelManagerWindow(QMainWindow):
         self.mode_tabs.addTab(self.model_manager, "Model")
         self.mode_tabs.addTab(self.workflow_manager, "Workflow")
         self.mode_tabs.addTab(self.prompt_manager, "Prompt")
+        
+        self.gallery_manager = GalleryManagerWidget(self.directories, self.app_settings, self)
+        self.mode_tabs.addTab(self.gallery_manager, "Gallery")
+        
         self.mode_tabs.addTab(self.task_monitor, "Tasks")
         
         # [Video Memory Optimization] Handle tab switching
@@ -202,11 +207,13 @@ class ModelManagerWindow(QMainWindow):
             self.model_manager.set_directories(self.directories)
             self.workflow_manager.set_directories(self.directories)
             self.prompt_manager.set_directories(self.directories)
+            if hasattr(self, 'gallery_manager'): self.gallery_manager.set_directories(self.directories)
             
     def closeEvent(self, event):
         # Propagate close to managers to stop threads
         if hasattr(self, 'model_manager'): self.model_manager.stop_all_workers()
         if hasattr(self, 'workflow_manager'): self.workflow_manager.stop_all_workers()
         if hasattr(self, 'prompt_manager'): self.prompt_manager.stop_all_workers()
+        if hasattr(self, 'gallery_manager'): self.gallery_manager.stop_all_workers()
         
         event.accept()

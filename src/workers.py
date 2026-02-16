@@ -196,7 +196,7 @@ class FileScannerWorker(QThread):
         self.extensions = extensions
         self.recursive = recursive
         self._is_running = True
-        self.CHUNK_SIZE = 200
+        self.CHUNK_SIZE = 2000 # [Optimization] Increase batch size to reduce UI spam
 
     def stop(self):
         self._is_running = False
@@ -811,12 +811,25 @@ class LocalMetadataWorker(QThread):
                     except OSError:
                         pass
                     
-                    with open(path, 'rb') as f:
-                        img_bytes = f.read()
-                    
-                    with Image.open(BytesIO(img_bytes)) as img:
-                        img.load() 
-                        meta = standardize_metadata(img)
+                    # [Fix] Check if video before attempting Image.open
+                    ext = os.path.splitext(path)[1].lower()
+                    if ext in VIDEO_EXTENSIONS:
+                        # Return empty/default metadata for videos
+                        meta = {
+                            "type": "video",
+                            "main": {},
+                            "model": {"checkpoint": "", "loras": [], "resources": []},
+                            "prompts": {"positive": "", "negative": ""},
+                            "etc": {},
+                            "raw_text": "Video File (Metadata extraction not supported)"
+                        }
+                    else:
+                        with open(path, 'rb') as f:
+                            img_bytes = f.read()
+                        
+                        with Image.open(BytesIO(img_bytes)) as img:
+                            img.load() 
+                            meta = standardize_metadata(img)
                     
                     if cache_key:
                         try:
