@@ -10,8 +10,11 @@ The toyxyz manager is a model, workflow, and prompt management tool designed to 
 ## Installation
 
 1. **Environment Setup**
+
 Run `setup_env.bat`. Wait until the venv (virtual environment) is installed. Once complete, close the window.
+
 2. **Execution**
+
 Run `run.bat` or `launcher.vbs`. Both perform the same function; however, `run.bat` will display the command prompt (CMD) window. Use `run.bat` if you need to check for errors. If everything is working correctly, use `launcher.vbs`.
 
 ---
