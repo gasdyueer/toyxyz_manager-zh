@@ -17,12 +17,11 @@
   - Download models directly via Civitai or Hugging Face URLs.
   - Smart collision handling with options to rename or overwrite existing files.
 
-### 2. 🖼️ Gallery Manager (New)
+### 2. 🖼️ Gallery Manager
 
 - **Visual Browser**: A dedicated mode for browsing your generated images and videos.
 - **Detailed Info Panel**: View essential file information such as filename, resolution, file size, and creation date at a glance.
 - **Fullscreen Preview**: Click on any image in the preview pane to view it in full-screen mode for detailed inspection.
-- **Smart Selection**: Accurately prioritizes selected files for preview, distinguishing between images and videos even if they share similar filenames.
 
 ### 3. 🔄 Workflow Manager
 
