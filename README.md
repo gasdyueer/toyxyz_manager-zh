@@ -1,9 +1,6 @@
-# ToyXYZ Manager (ComfyUI Asset Manager)
+# Toyxyz Manager
 
-**ToyXYZ Manager** is a comprehensive local asset management tool specifically designed for **ComfyUI**. It bridges the gap between your file system and ComfyUI, providing a streamlined interface to manage models, workflows, prompts, and gallery images.
-
-With advanced features like automatic metadata syncing with Civitai, instant workflow visualization, and seamless "Copy to ComfyUI" integration, ToyXYZ Manager significantly enhances your AI generation workflow.
-
+The toyxyz manager is a model, workflow, and prompt management tool designed to be used together with ComfyUI.
 ---
 
 ## ✨ Key Features
