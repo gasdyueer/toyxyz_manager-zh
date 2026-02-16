@@ -12,21 +12,19 @@ The toyxyz manager is a model, workflow, and prompt management tool designed to 
 - **Civitai Integration**:
   - **Auto-Match**: Calculates file hashes to automatically fetch metadata (Creator, Version Info, Trigger Words) from Civitai.
   - **One-Click Download**: Download new models directly via Civitai or Hugging Face URLs.
-- **Seamless Copy**: Select a model and click `📋 Copy Node` to generate a node snippet that can be **pasted directly** into your ComfyUI canvas (Ctrl+V).
+- Select a model and click `📋 Copy Node` to generate a node snippet that can be **pasted directly** into your ComfyUI canvas (Ctrl+V).
 
 ### 2. 🖼️ Gallery Manager
 
 - **High-Performance Browser**: Browses thousands of generated images and videos with zero lag, thanks to optimized background scanning and caching.
 - **Metadata Inspector**: View generation parameters (Prompt, Sampler, Seed, etc.) embedded in your images.
 - **Fullscreen Preview**: Double-click or use the preview pane to inspect details in full resolution.
-- **Duplicate Detection**: (Optional) Intelligent warning system for duplicate files (disabled in Gallery mode for a cleaner view).
 
 ### 3. 🔄 Workflow Manager
 
-- **Visualizer**: Preview the structure of `.json` workflow files without opening ComfyUI.
-- **Smart Copy**:
-  - Copy workflows to clipboard in a format that ComfyUI recognizes as **"Paste Nodes"**.
-  - Automatically handles subgraphs and converts link formats for maximum compatibility.
+- Preview the structure of `.json` workflow files without opening ComfyUI.
+- Copy workflows to clipboard in a format that ComfyUI recognizes as **"Paste Nodes"**.
+- Automatically handles subgraphs and converts link formats for maximum compatibility.
 
 ### 4. 📝 Prompt Manager
 
