@@ -387,6 +387,8 @@ class BaseManagerWidget(QWidget):
                 self._refresh_duplicate_warning()
 
     def _refresh_duplicate_warning(self):
+        if self.get_mode() == "gallery": return
+
         # Subclasses can override or we implement generic if label is standard
         # ModelManagerWidget has lbl_duplicate_warning
         if hasattr(self, 'lbl_duplicate_warning') and self.current_path:
@@ -906,7 +908,7 @@ class BaseManagerWidget(QWidget):
             date_str = "Error"
             
         # Duplicate Check
-        if hasattr(self, 'file_map') and self.lbl_duplicate_warning:
+        if self.get_mode() != "gallery" and hasattr(self, 'file_map') and self.lbl_duplicate_warning:
             f_name_lower = filename.lower()
             duplicates = self.file_map.get(f_name_lower, [])
             if len(duplicates) > 1:
