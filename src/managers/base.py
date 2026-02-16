@@ -741,7 +741,19 @@ class BaseManagerWidget(QWidget):
         Phase 1: Signal all threads to stop.
         Phase 2: Wait for threads with a global timeout.
         """
-        workers = []
+    def stop_all_workers(self):
+        """
+        [Optimization] Parallel shutdown sequence.
+        Phase 1: Signal all threads to stop.
+        Phase 2: Wait for threads with a global timeout.
+        """
+        workers, thumb_workers, heavy_workers = self.collect_active_workers()
+        self.signal_workers_stop(workers, heavy_workers)
+        self.wait_workers_stop(workers, thumb_workers, heavy_workers)
+
+    def collect_active_workers(self):
+        workers = [] # Fast workers (Scanners, Search)
+        heavy_workers = [] # Slow IO workers (ImageLoader, Metadata)
 
         # Collect all active workers
         if hasattr(self, 'active_scanners'):
@@ -765,7 +777,7 @@ class BaseManagerWidget(QWidget):
 
         try:
             if hasattr(self, 'image_loader_thread') and self.image_loader_thread and self.image_loader_thread.isRunning():
-                 workers.append(self.image_loader_thread)
+                 heavy_workers.append(self.image_loader_thread)
         except RuntimeError: pass
 
         # Collect thumbnail workers
@@ -778,31 +790,45 @@ class BaseManagerWidget(QWidget):
         if hasattr(self, 'tab_example') and hasattr(self.tab_example, 'metadata_worker'):
             try:
                 if self.tab_example.metadata_worker and self.tab_example.metadata_worker.isRunning():
-                    workers.append(self.tab_example.metadata_worker)
+                    heavy_workers.append(self.tab_example.metadata_worker)
             except RuntimeError:
                 pass
+        
+        return workers, thumb_workers, heavy_workers
 
-        logging.debug(f"[StopAllWorkers] Stopping {len(workers)} workers...")
+    def signal_workers_stop(self, workers=None, heavy_workers=None):
+        if workers is None:
+             workers, _, heavy_workers = self.collect_active_workers() # Re-collect if needed
+        
+        if heavy_workers is None: heavy_workers = []
+
+        all_stop_workers = workers + heavy_workers
+        logging.debug(f"[StopAllWorkers] Stopping {len(all_stop_workers)} workers...")
 
         # Phase 1: Send Stop Signal (for those that support it)
-        for w in workers:
-            if hasattr(w, 'stop'):
-                w.stop()
+        for w in all_stop_workers:
+            try:
+                if hasattr(w, 'stop'):
+                    w.stop()
+            except RuntimeError: pass
             # ThumbnailWorker doesn't have stop(), it just runs until completion (copy is blocking usually)
+
+    def wait_workers_stop(self, workers=None, thumb_workers=None, heavy_workers=None):
+        if workers is None:
+             workers, thumb_workers, heavy_workers = self.collect_active_workers()
         
+        if thumb_workers is None: thumb_workers = []
+        if heavy_workers is None: heavy_workers = []
+
         # Phase 2: Wait for workers
-        # We process ImageLoader LAST to give it maximum time to finish IO, 
-        # but we also don't want a shared deadline to starve it.
         
         # 1. Wait for Scanners & Searchers (Fast)
         for w in workers:
-            if w == getattr(self, 'image_loader_thread', None): continue
-            
             try:
                 if w.isRunning():
-                    logging.debug(f"[StopAllWorkers] Waiting for {w.objectName()}...")
+                    logging.debug(f"[StopAllWorkers] Waiting for {w.objectName() if w.objectName() else 'Worker'}...")
                     w.wait(1000) # 1 sec each
-                    logging.debug(f"[StopAllWorkers] {w.objectName()} finished.")
+                    logging.debug(f"[StopAllWorkers] {w.objectName() if w.objectName() else 'Worker'} finished.")
             except RuntimeError: pass
 
         # 2. Wait for Thumbnail workers
@@ -813,21 +839,21 @@ class BaseManagerWidget(QWidget):
                     w.wait(500)
             except RuntimeError: pass
             
-        # 3. Wait for ImageLoader (Can be slow due to IO)
-        img_loader = getattr(self, 'image_loader_thread', None)
-        if img_loader:
+        # 3. Wait for Heavy Workers (ImageLoader, Metadata)
+        for w in heavy_workers:
             try:
-                if img_loader.isRunning():
-                    logging.debug(f"[StopAllWorkers] Waiting for ImageLoaderThread (3s timeout)...")
+                if w.isRunning():
+                    name = w.objectName() if w.objectName() else str(w)
+                    logging.debug(f"[StopAllWorkers] Waiting for {name} (3s timeout)...")
                     # Give it ample time (e.g. 3s)
-                    if not img_loader.wait(3000):
-                        logging.warning("[StopAllWorkers] ImageLoaderThread stuck. Forcing termination.")
+                    if not w.wait(3000):
+                        logging.warning(f"[StopAllWorkers] {name} stuck. Forcing termination.")
                         # Terminate is dangerous but prevents the "Destroyed while running" error on exit
-                        img_loader.terminate()
-                        img_loader.wait()
-                        logging.warning("[StopAllWorkers] ImageLoaderThread terminated.")
+                        w.terminate()
+                        w.wait()
+                        logging.warning(f"[StopAllWorkers] {name} terminated.")
                     else:
-                        logging.debug(f"[StopAllWorkers] ImageLoaderThread exited gracefully.")
+                        logging.debug(f"[StopAllWorkers] {name} exited gracefully.")
             except RuntimeError: pass
             
         logging.debug("[StopAllWorkers] Cleanup complete.")

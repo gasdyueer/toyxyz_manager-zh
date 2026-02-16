@@ -12,6 +12,7 @@ if not exist venv (
 echo Activating venv and running application...
 call venv\Scripts\activate
 
-start "" pythonw main.py
+python main.py
 
 echo Application finished.
+pause

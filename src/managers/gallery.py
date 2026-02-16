@@ -155,22 +155,20 @@ class GalleryManagerWidget(BaseManagerWidget):
             except OSError as e:
                 logging.error(f"Failed to open file: {e}")
 
-    def stop_all_workers(self):
-        """Stops all background workers."""
-        if self.meta_worker:
-            self.meta_worker.stop()
-            self.meta_worker.wait(500)
-        # Base class handles image_loader in its own way or we rely on closeEvent?
-        # BaseManagerWidget doesn't seem to have strict stop method, but let's be safe.
-        self.close()
+    def collect_active_workers(self):
+        """Override to include the gallery-specific metadata worker."""
+        # Get base workers (image loader, scanners, etc.)
+        workers, thumb_workers, heavy_workers = super().collect_active_workers()
+        
+        # Add our specific worker
+        try:
+            if hasattr(self, 'meta_worker') and self.meta_worker and self.meta_worker.isRunning():
+                heavy_workers.append(self.meta_worker)
+        except RuntimeError: pass
+        
+        return workers, thumb_workers, heavy_workers
 
     def set_directories(self, directories):
         """Updates the directories and refreshes the combo box, enforcing strict filtering."""
         gallery_dirs = {k: v for k, v in directories.items() if v.get("mode") == "gallery"}
         super().set_directories(gallery_dirs)
-
-    def closeEvent(self, event):
-        if self.meta_worker:
-            self.meta_worker.stop()
-            self.meta_worker.wait(500)
-        super().closeEvent(event)

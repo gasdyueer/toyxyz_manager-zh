@@ -59,6 +59,11 @@ class ImageLoader(QThread):
         # [Cache] LRU Cache
         self.cache = OrderedDict()
         self.CACHE_SIZE = 2
+    
+    def __del__(self):
+        try:
+            self.wait()
+        except RuntimeError: pass
 
     def load_image(self, path, target_width=None):
         with QMutexWithLocker(self.mutex):
@@ -746,6 +751,11 @@ class LocalMetadataWorker(QThread):
         self.queue = deque()
         self.CACHE_SIZE = 50
         self.cache = OrderedDict()  # {(path, mtime): metadata_dict}
+
+    def __del__(self):
+        try:
+            self.wait()
+        except RuntimeError: pass
         
     def extract(self, path):
         with QMutexWithLocker(self.mutex):

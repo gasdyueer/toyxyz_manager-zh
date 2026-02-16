@@ -2,6 +2,12 @@ import sys
 import logging
 import os
 
+# [Infra] Suppress verbose FFmpeg/Qt logs (Must be set before Qt imports)
+os.environ["QT_LOGGING_RULES"] = "qt.multimedia*=false;*.debug=false"
+os.environ["FFMPEG_LOG_LEVEL"] = "quiet"
+os.environ["FFREPORT"] = "level=16" # Level 16=Error, 24=Warning, 32=Info. We use 16 to suppress warnings.
+os.environ["OPENCV_LOG_LEVEL"] = "OFF"
+
 # [Infra] Setup Logging
 # Argument Parsing
 debug_mode = "--debug" in sys.argv
@@ -31,8 +37,6 @@ logging.basicConfig(
 
 # ... PySide6 imports ...
 
-# Suppress verbose FFmpeg/Qt logs
-os.environ["QT_LOGGING_RULES"] = "qt.multimedia*=false"
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon

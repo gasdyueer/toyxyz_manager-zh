@@ -711,7 +711,6 @@ class TaskMonitorWidget(QWidget):
             color = QColor("#2196F3") 
         self.table.item(row, 2).setForeground(QBrush(color))
 
-    # [수정] Smart Clear 구현 (완료된 것만 삭제)
     def clear_finished_tasks(self):
         row_count = self.table.rowCount()
         for r in range(row_count - 1, -1, -1):
@@ -729,6 +728,11 @@ class TaskMonitorWidget(QWidget):
                 key = item_task.data(Qt.UserRole)
                 if key:
                     self.row_map[key] = r
+
+    def log_message(self, message):
+        """Adds a simple log message to the monitor."""
+        key = f"log_{self.table.rowCount()}"
+        self.add_row(key, "Info", message, "Done")
 
 class FolderDialog(QDialog):
     def __init__(self, parent=None, path="", mode="model", model_type="checkpoints", comfy_root=""):

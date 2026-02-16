@@ -211,9 +211,44 @@ class ModelManagerWindow(QMainWindow):
             
     def closeEvent(self, event):
         # Propagate close to managers to stop threads
-        if hasattr(self, 'model_manager'): self.model_manager.stop_all_workers()
-        if hasattr(self, 'workflow_manager'): self.workflow_manager.stop_all_workers()
-        if hasattr(self, 'prompt_manager'): self.prompt_manager.stop_all_workers()
-        if hasattr(self, 'gallery_manager'): self.gallery_manager.stop_all_workers()
+        managers = []
+        if hasattr(self, 'model_manager'): managers.append(self.model_manager)
+        if hasattr(self, 'workflow_manager'): managers.append(self.workflow_manager)
+        if hasattr(self, 'prompt_manager'): managers.append(self.prompt_manager)
+        if hasattr(self, 'gallery_manager'): managers.append(self.gallery_manager)
+        
+        # Phase 0: Collect Workers (Preserve state before stopping)
+        collected_data = {}
+        for mgr in managers:
+             if hasattr(mgr, 'collect_active_workers'):
+                 try:
+                     collected_data[mgr] = mgr.collect_active_workers()
+                 except Exception:
+                     collected_data[mgr] = None
+             else:
+                 collected_data[mgr] = None
+
+        # Phase 1: Signal Stop (Parallel)
+        for mgr in managers:
+            try:
+                if collected_data[mgr]:
+                    workers, _, heavy_workers = collected_data[mgr]
+                    if hasattr(mgr, 'signal_workers_stop'):
+                        mgr.signal_workers_stop(workers, heavy_workers)
+                elif hasattr(mgr, 'stop_all_workers'):
+                    # Fallback (Should be rare as all inherit BaseManager)
+                    pass 
+            except Exception: pass
+
+        # Phase 2: Wait for Stop (Parallel-ish)
+        for mgr in managers:
+            try:
+                if collected_data[mgr]:
+                    workers, thumb_workers, heavy_workers = collected_data[mgr]
+                    if hasattr(mgr, 'wait_workers_stop'):
+                        mgr.wait_workers_stop(workers, thumb_workers, heavy_workers)
+                elif hasattr(mgr, 'stop_all_workers'):
+                    mgr.stop_all_workers()
+            except Exception: pass
         
         event.accept()
