@@ -1,69 +1,68 @@
 # ToyXYZ Manager (ComfyUI Asset Manager)
 
-**ToyXYZ Manager** is a powerful local asset management tool designed for ComfyUI. It streamlines the management of models, workflows, prompts, and gallery images scattered across complex folder structures, providing advanced features like automatic metadata syncing with Civitai, workflow visualization, and efficient file previews.
+**ToyXYZ Manager** is a comprehensive local asset management tool specifically designed for **ComfyUI**. It bridges the gap between your file system and ComfyUI, providing a streamlined interface to manage models, workflows, prompts, and gallery images.
+
+With advanced features like automatic metadata syncing with Civitai, instant workflow visualization, and seamless "Copy to ComfyUI" integration, ToyXYZ Manager significantly enhances your AI generation workflow.
+
+---
 
 ## ✨ Key Features
 
 ### 1. 📦 Model Manager
 
-- **Comprehensive Support**: Manage all ComfyUI model types including Checkpoints, LoRAs, VAEs, Embeddings, ControlNets, and Upscale Models.
-- **Smart Previews**: Play video previews (`.mp4`, `.webm`) and animated GIFs alongside standard images (`.png`, `.jpg`, `.webp`).
-- **Auto Metadata Matching**:
-  - Calculates file hashes to retrieve accurate model details from Civitai.
-  - Automatically fetches trigger words, version descriptions, and creator info.
-- **ComfyUI Integration**:
-  - **Copy Node**: Select a model and click `📋 Copy Node` to generate a node snippet ready to paste properly into ComfyUI.
-- **Download Manager**:
-  - Download models directly via Civitai or Hugging Face URLs.
-  - Smart collision handling with options to rename or overwrite existing files.
+- **Unified Management**: Organize Checkpoints, LoRAs, VAEs, Embeddings, ControlNets, and Upscale Models in one place.
+- **Smart Previews**: Automatically plays video previews (`.mp4`, `.webm`) and animated GIFs alongside standard images.
+- **Civitai Integration**:
+  - **Auto-Match**: Calculates file hashes to automatically fetch metadata (Creator, Version Info, Trigger Words) from Civitai.
+  - **One-Click Download**: Download new models directly via Civitai or Hugging Face URLs.
+- **Seamless Copy**: Select a model and click `📋 Copy Node` to generate a node snippet that can be **pasted directly** into your ComfyUI canvas (Ctrl+V).
 
 ### 2. 🖼️ Gallery Manager
 
-- **Visual Browser**: A dedicated mode for browsing your generated images and videos.
-- **Detailed Info Panel**: View essential file information such as filename, resolution, file size, and creation date at a glance.
-- **Fullscreen Preview**: Click on any image in the preview pane to view it in full-screen mode for detailed inspection.
+- **High-Performance Browser**: Browses thousands of generated images and videos with zero lag, thanks to optimized background scanning and caching.
+- **Metadata Inspector**: View generation parameters (Prompt, Sampler, Seed, etc.) embedded in your images.
+- **Fullscreen Preview**: Double-click or use the preview pane to inspect details in full resolution.
+- **Duplicate Detection**: (Optional) Intelligent warning system for duplicate files (disabled in Gallery mode for a cleaner view).
 
 ### 3. 🔄 Workflow Manager
 
-- **Visualization**: Preview the structure of your ComfyUI workflow files (`.json`) without opening them.
-- **Drag & Drop**: Drag workflow files from the manager directly into ComfyUI to load them instantly.
+- **Visualizer**: Preview the structure of `.json` workflow files without opening ComfyUI.
+- **Smart Copy**:
+  - Copy workflows to clipboard in a format that ComfyUI recognizes as **"Paste Nodes"**.
+  - Automatically handles subgraphs and converts link formats for maximum compatibility.
 
 ### 4. 📝 Prompt Manager
 
-- **Library System**: Save and organize your frequently used positive and negative prompts.
-- **Tagging**: Categorize prompts with tags for quick filtering.
-- **One-Click Copy**: Easily copy prompt sets to your clipboard.
+- **Library System**: Save, edit, and organize positive/negative prompts.
+- **Tagging & Filtering**: meaningful tags for quick retrieval.
+- **Example Images**: Associate example images with your prompts to remember their effects.
 
-### 5. 📊 Task Monitor & Queue
+### 5. 🛠️ Power User Tools
 
-- **Background Tasks**: Track the progress of file scanning, hash calculations, and downloads.
-- **Smart Clear**: The "Clear Done" feature automatically removes completed, failed, or "not found" tasks from the list, keeping your view clean.
-
-### 6. 🔍 Search & Filter
-
-- **Real-time Filtering**: Instantly search for files within the current folder.
-- **Deep Search**: Recursively search for files across all subdirectories.
+- **Task Monitor**: Real-time tracking of background tasks (hashing, downloading, scanning).
+- **Global Search**: Recursively search for files across your entire library.
+- **Notes**: Add Markdown notes to any model or file for personal reference.
 
 ---
 
-## 🛠️ Installation & Usage
+## 🚀 Installation
 
-### Requirements
+### Prerequisites
 
-- **OS**: Windows 10/11 (Recommended)
+- **OS**: Windows 10/11
 - **Python**: 3.10 or higher
-- **Dependencies**: `PySide6`, `requests`, `Pillow`, `markdown`, `markdownify`
+- **ComfyUI**: (Optional, but recommended for full integration)
 
-### Installation Steps
+### Setup Guide
 
-1. **Clone or Download the Repository**
+1. **Clone the Repository**
 
    ```bash
    git clone https://github.com/toyxyz/toyxyz_manager.git
    cd toyxyz_manager
    ```
 
-2. **Set Up a Virtual Environment** (Recommended)
+2. **Create a Virtual Environment** (Recommended)
 
    ```bash
    python -m venv venv
@@ -74,47 +73,42 @@
    ```bash
    pip install -r requirements.txt
    ```
-
-### Running the App
-
-- **Standard Mode**: Run the included `run.bat` file or execute:
-
-  ```bash
-  python main.py
-  ```
-
-- **Debug Mode**: To view detailed logs and troubleshoot issues:
-  ```bash
-  python main.py --debug
-  ```
+   _Core dependencies: `PySide6`, `requests`, `Pillow`, `markdown`, `markdownify`_
 
 ---
 
-## ⚙️ Configuration Guide
+## 🎮 Usage
 
-After launching the app, click the **Settings** icon (top-right) to configure your asset folders.
+### Running the Application
 
-1. **Category**: Give your folder a name (e.g., "My Checkpoints").
-2. **Path**: Select the actual folder path on your disk.
-3. **Mode**: Choose the folder type:
+Simply double-click the included **`run.bat`** file, or run via command line:
+
+```bash
+python main.py
+```
+
+### Initial Configuration
+
+1. Click the **Settings (⚙️)** icon in the top-right corner.
+2. Add your asset folders (where your models/images are stored).
+3. Set the **Mode** for each folder:
    - `model`: For ComfyUI models (Checkpoints, LoRAs, etc.).
-   - `gallery`: For generated images and videos.
-   - `workflow`: For `.json` workflow files.
-   - `prompt`: For prompt libraries.
-4. **Model Type**: (Only for `model` mode) Select the specific type (e.g., `checkpoints`, `loras`) to enable correct `Copy Node` functionality.
-5. **Comfy Root**: (Optional) Set your ComfyUI installation root to enable relative path features.
+   - `gallery`: For generated outputs.
+   - `workflow`: For JSON workflows.
+   - `prompt`: For prompt text files.
+4. (Optional) Set your **ComfyUI Root Path** to enable relative path features.
 
 ---
 
-## 💡 Tips
+## 💡 Tips & Tricks
 
-- **Custom Thumbnails**: Drag and drop an image onto the preview area of a model to set it as a custom thumbnail.
-- **Notes**: Use the `Note` tab to write Markdown notes for any file.
-- **Refresh**: Use the `🔄` button if you've added files externally and they aren't showing up.
-- **Stability**: The application is optimized to handle large libraries without crashing, even during background scans.
+- **Custom Thumbnails**: Drag & Drop any image onto a model's preview area to set it as a custom thumbnail.
+- **Fast Copy**: Right-click a prompt in the list to copy it instantly.
+- **Notes**: Use the `Note` tab to document trigger words or recommended settings for your models.
+- **Refresh**: Hit the `🔄` button to rescan folders if you've added files externally.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License. Feel free to modify and distribute.
+This project is licensed under the MIT License.
