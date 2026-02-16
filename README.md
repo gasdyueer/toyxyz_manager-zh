@@ -103,9 +103,3 @@ python main.py
 - **Fast Copy**: Right-click a prompt in the list to copy it instantly.
 - **Notes**: Use the `Note` tab to document trigger words or recommended settings for your models.
 - **Refresh**: Hit the `🔄` button to rescan folders if you've added files externally.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
