@@ -25,6 +25,9 @@ Run `run.bat` or `launcher.vbs`. Both perform the same function; however, `run.b
 
 ### 1. Settings
 
+<img width="1054" height="947" alt="image" src="https://github.com/user-attachments/assets/0d41674b-3119-40d6-8277-abe4dce12da6" />
+
+
 First, enter the paths for your models, workflows, and prompts in the Settings menu located at the top-left. Each path must be designated as one of the following modes:
 
 **model**: Checkpoint models.
@@ -63,8 +66,6 @@ Select your desired mode from the tabs at the top. Each tab consists of a Tree V
 * By using the Copy button at the bottom of the Media View, the currently selected model is copied as its corresponding loader node. You can then paste it directly onto the ComfyUI canvas. In the Workflow tab, all nodes within that workflow are copied.
 * *Note: The copy function may not work correctly if the workflow includes specific nodes such as "Everywhere" or "Set/Get" nodes.*
 
-
-
 #### Detail View
 
 * **Media Management**: You can upload, delete, and view example images and videos. You can also open workflows by dragging and dropping these example images onto the ComfyUI canvas.
@@ -73,5 +74,15 @@ Select your desired mode from the tabs at the top. Each tab consists of a Tree V
 * **Manual URL**: Allows you to download metadata by manually entering a URL from Civitai or Hugging Face.
 * **Download Model**: Downloads a model from a provided Civitai or Hugging Face URL. For Hugging Face, you must provide the direct link to a single model file. Example: (https://huggingface.co/lightx2v/Wan2.1-T2V-1.3B-longcat-step500/blob/main/adapter_model.safetensors)
 
-
 ---
+
+#### Prompt 
+
+1. Prompt mode is different from others in that it allows users to create and modify new prompt files.
+
+2. Execute new file at the bottom of the tree view on the left to create a new prompt file.
+
+3. Select the prompt file in the tree view, then add a new prompt preset with new at the bottom of the center tab, modify it with edit, and delete it with remove.
+
+4. Notes and examples in the details tab on the right can be specified for each prompt preset.
+
