@@ -11,6 +11,8 @@ The toyxyz manager is a model, workflow, and prompt management tool designed to 
 
 1. **Environment Setup**
 
+Requires Python 3.12 or higher.
+
 Run `setup_env.bat`. Wait until the venv (virtual environment) is installed. Once complete, close the window.
 
 2. **Execution**
