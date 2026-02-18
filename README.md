@@ -44,7 +44,7 @@ First, enter the paths for your models, workflows, and prompts in the Settings m
 
 **Cache folder**: Designates the path where hashes, notes, and examples for specific models are stored. If left unspecified, a 'cache' folder will be automatically created in the directory where the current script is located.
 
-The Civitai API key and huggling face tokens are not essential, but if the model and metadata download are not working properly, try entering them.
+The Civitai API key and the Hugging Face token are used for downloading models and metadata, although not essential.
 
 ---
 
