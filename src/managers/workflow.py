@@ -18,6 +18,7 @@ from ..core import (
     HAS_MARKDOWN, calculate_structure_path, PREVIEW_EXTENSIONS
 )
 from ..ui_components import SmartMediaWidget, ZoomWindow, TaskMonitorWidget
+from ..ui.workflow_viewer import WorkflowGraphViewer
 from .example import ExampleTabWidget
 from ..workers import ImageLoader
 
@@ -83,13 +84,18 @@ class WorkflowManagerWidget(BaseManagerWidget):
         # Tabs (from Base)
         self.tabs = self.setup_content_tabs()
         
-        # Tab 3: Raw JSON
+        # Tab: Graph Preview (First)
+        self.graph_viewer = WorkflowGraphViewer()
+        self.tabs.insertTab(0, self.graph_viewer, "Preview")
+        self.tabs.setCurrentIndex(0)
+        
+        # Tab: Raw JSON
         self.tab_raw = QWidget()
         raw_layout = QVBoxLayout(self.tab_raw)
         self.txt_raw = QTextBrowser()
         raw_layout.addWidget(self.txt_raw)
         self.tabs.addTab(self.tab_raw, "Raw JSON")
-        
+
         self.right_layout.addWidget(self.tabs)
 
     def on_tree_select(self):
@@ -133,6 +139,14 @@ class WorkflowManagerWidget(BaseManagerWidget):
             with open(path, 'r', encoding='utf-8') as f:
                 raw_text = f.read()
                 self.txt_raw.setText(raw_text)
+                
+                # Load Graph Preview
+                if hasattr(self, 'graph_viewer'):
+                     try:
+                         json_data = json.loads(raw_text)
+                         self.graph_viewer.load_workflow(json_data)
+                     except Exception as e:
+                         self.graph_viewer.clear_graph()
         except Exception as e:
             self.txt_raw.setText(f"Error reading file: {e}")
 
