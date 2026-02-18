@@ -4,6 +4,8 @@ The toyxyz manager is a model, workflow, and prompt management tool designed to 
 
 <img width="2254" height="1472" alt="image" src="https://github.com/user-attachments/assets/d10dbdcf-2a48-4f5b-87f7-d2849abd316f" />
 
+<img width="2254" height="1472" alt="image" src="https://github.com/user-attachments/assets/105da75d-4056-4afe-bfda-60861403552c" />
+
 
 ---
 
