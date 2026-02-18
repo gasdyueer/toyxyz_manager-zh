@@ -80,7 +80,7 @@ Select your desired mode from the tabs at the top. Each tab consists of a Tree V
 
 ---
 
-#### Prompt 
+#### Prompt mode
 
 1. Prompt mode is different from others in that it allows users to create and modify new prompt files.
 
