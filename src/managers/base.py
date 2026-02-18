@@ -8,12 +8,24 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QLineEdit, QMessageBox, QAbstractItemView,
     QFileDialog, QApplication, QFormLayout
 )
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, QSize
 
 from ..workers import FileScannerWorker, ThumbnailWorker, FileSearchWorker, ImageLoader
 from ..ui_components import ZoomWindow, MarkdownNoteWidget
 from .example import ExampleTabWidget
 from ..core import VIDEO_EXTENSIONS, PREVIEW_EXTENSIONS, calculate_structure_path
+
+class WrappingLabel(QLabel):
+    """QLabel that wraps text without pushing parent layout wider."""
+    def minimumSizeHint(self):
+        sh = super().minimumSizeHint()
+        return QSize(0, sh.height())
+
+    def setText(self, text):
+        # Insert zero-width space after path separators to allow wrapping
+        if text:
+            text = text.replace("\\", "\\\u200b").replace("/", "/\u200b").replace("_", "_\u200b")
+        super().setText(text)
 
 class SortableTreeItem(QTreeWidgetItem):
     def __lt__(self, other):
@@ -192,7 +204,7 @@ class BaseManagerWidget(QWidget):
         form_layout = QFormLayout()
         
         for k in target_fields:
-            l = QLabel("-")
+            l = WrappingLabel("-")
             l.setWordWrap(True)
             self.info_labels[k] = l
             form_layout.addRow(f"{k}:", l)
