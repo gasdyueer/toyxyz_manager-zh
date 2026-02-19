@@ -1,6 +1,6 @@
-# Toyxyz Manager
+# Toyxyz 管理器
 
-The toyxyz manager is a model, workflow, and prompt management tool designed to be used together with ComfyUI.
+Toyxyz 管理器是一个模型、工作流和提示词管理工具，设计用于与 ComfyUI 配合使用。
 
 <img width="2254" height="1472" alt="image" src="https://github.com/user-attachments/assets/d10dbdcf-2a48-4f5b-87f7-d2849abd316f" />
 
@@ -9,86 +9,85 @@ The toyxyz manager is a model, workflow, and prompt management tool designed to 
 
 ---
 
-## Installation
+## 安装
 
-1. **Environment Setup**
+1. **环境设置**
 
-Requires Python 3.12 or higher.
+需要 Python 3.12 或更高版本。
 
     git clone https://github.com/toyxyz/toyxyz_manager
 
-Run `setup_env.bat`. Wait until the venv (virtual environment) is installed. Once complete, close the window.
+运行 `setup_env.bat`。等待虚拟环境（venv）安装完成。完成后关闭窗口。
 
-2. **Execution**
+2. **执行**
 
-Run `run.bat` or `launcher.vbs`. Both perform the same function; however, `run.bat` will display the command prompt (CMD) window. Use `run.bat` if you need to check for errors. If everything is working correctly, use `launcher.vbs`.
+运行 `run.bat` 或 `launcher.vbs`。两者功能相同；但 `run.bat` 会显示命令提示符（CMD）窗口。如果需要检查错误，请使用 `run.bat`。如果一切正常，请使用 `launcher.vbs`。
 
 ---
 
-## Usage
+## 使用说明
 
-### 1. Settings
+### 1. 设置
 
 <img width="1054" height="947" alt="image" src="https://github.com/user-attachments/assets/0d41674b-3119-40d6-8277-abe4dce12da6" />
 
 
-First, enter the paths for your models, workflows, and prompts in the Settings menu located at the top-left. Each path must be designated as one of the following modes:
+首先，在左上角的设置菜单中输入您的模型、工作流和提示词的路径。每个路径必须指定为以下模式之一：
 
-**model**: Checkpoint models.
-* If the mode is set to 'model', you must specify the model type (e.g., LoRA, VAE, etc.). This setting is used for the Copy Node feature.
-* ComfyUI Root : This refers to the root path specified when using the model loader within ComfyUI. This is also used for the Copy Node feature.
+**model**: 检查点模型。
+* 如果模式设置为 'model'，您必须指定模型类型（例如，LoRA、VAE 等）。此设置用于复制节点功能。
+* ComfyUI 根目录：指在 ComfyUI 中使用模型加载器时指定的根路径。这也用于复制节点功能。
 
-**workflow**: The path where ComfyUI workflow files (.json) are located.
+**workflow**: ComfyUI 工作流文件（.json）所在的路径。
 
-**prompt**: The path where prompt presets will be saved.
+**prompt**: 提示词预设保存的路径。
 
-**gallery**: The path where images and videos are located.
+**gallery**: 图像和视频所在的路径。
 
-**Cache folder**: Designates the path where hashes, notes, and examples for specific models are stored. If left unspecified, a 'cache' folder will be automatically created in the directory where the current script is located. The newly entered cache path will take effect after restart.
+**缓存文件夹**: 指定存储特定模型的哈希值、笔记和示例的路径。如果未指定，将在当前脚本所在目录自动创建 'cache' 文件夹。新输入的缓存路径将在重启后生效。
 
-The Civitai API key and the Hugging Face token are used for downloading models and metadata, although not essential.
-
----
-
-### 2. Interface Overview
-
-Select your desired mode from the tabs at the top. Each tab consists of a Tree View on the left, a Media View in the center, and a Detail View on the right.
-
-* **Model**: Select models from the list and display the model's thumbnail and example detail notes.
-* **Workflow**: Browse workflows and display notes and examples.
-* **Prompt**: Create and modify prompt presets. Displays notes and examples.
-* **Gallery**: Explore images and videos created with Comfyui. Displays the image's metadata.
-* **Tasks**: Displays the real-time progress of ongoing operations, such as model and metadata downloads.
-
-#### Tree View
-
-* You can browse through directories in the Tree View. If multiple paths have been configured in the settings, you can select the desired path from the dropdown list at the top.
-
-#### Media View
-
-* The Media View allows you to browse thumbnails. You can open a workflow by dragging and dropping a thumbnail onto the ComfyUI canvas.
-* When dragging thumbnails in the Model tab, the image file is used.
-* In the Workflow tab, the .json file is used.
-* By using the Copy button at the bottom of the Media View, the currently selected model is copied as its corresponding loader node. You can then paste it directly onto the ComfyUI canvas. In the Workflow tab, all nodes within that workflow are copied.
-* *Note: The copy function may not work correctly if the workflow includes specific nodes such as "Everywhere" or "Set/Get" nodes.*
-
-#### Detail View
-
-* **Media Management**: You can upload, delete, and view example images and videos. You can also open workflows by dragging and dropping these example images onto the ComfyUI canvas.
-* **Notes**: Allows you to save detailed information, including attached images and external links.
-* **Auto Match**: Displayed in the Detail View of the Model tab. If the selected model is available on Civitai, it automatically downloads metadata, thumbnails, and example images. Please note that the first execution may take longer as it calculates the model's hash.
-* **Manual URL**: Allows you to download metadata by manually entering a URL from Civitai or Hugging Face.
-* **Download Model**: Downloads a model from a provided Civitai or Hugging Face URL. For Hugging Face, you must provide the direct link to a single model file. Example: (https://huggingface.co/lightx2v/Wan2.1-T2V-1.3B-longcat-step500/blob/main/adapter_model.safetensors)
+Civitai API 密钥和 Hugging Face 令牌用于下载模型和元数据，虽然不是必需的。
 
 ---
 
-#### Prompt mode
+### 2. 界面概览
 
-1. Prompt mode is different from others in that it allows users to create and modify new prompt files.
+从顶部的选项卡中选择您需要的模式。每个选项卡由左侧的树状视图、中间的媒体视图和右侧的详细信息视图组成。
 
-2. Execute new file at the bottom of the tree view on the left to create a new prompt file.
+* **模型**: 从列表中选择模型并显示模型的缩略图和示例详细笔记。
+* **工作流**: 浏览工作流并显示笔记和示例。
+* **提示词**: 创建和修改提示词预设。显示笔记和示例。
+* **画廊**: 探索使用 ComfyUI 创建的图像和视频。显示图像的元数据。
+* **任务**: 显示正在进行的操作（如模型和元数据下载）的实时进度。
 
-3. Select the prompt file in the tree view, then add a new prompt preset with new at the bottom of the center tab, modify it with edit, and delete it with remove.
+#### 树状视图
 
-4. Notes and examples in the details tab on the right can be specified for each prompt preset.
+* 您可以在树状视图中浏览目录。如果在设置中配置了多个路径，您可以从顶部的下拉列表中选择所需的路径。
 
+#### 媒体视图
+
+* 媒体视图允许您浏览缩略图。您可以通过将缩略图拖放到 ComfyUI 画布上来打开工作流。
+* 在模型选项卡中拖动缩略图时，使用图像文件。
+* 在工作流选项卡中，使用 .json 文件。
+* 使用媒体视图底部的复制按钮，将当前选中的模型复制为其对应的加载器节点。然后您可以将其直接粘贴到 ComfyUI 画布上。在工作流选项卡中，复制该工作流内的所有节点。
+* *注意：如果工作流包含特定节点，如 "Everywhere" 或 "Set/Get" 节点，复制功能可能无法正常工作。*
+
+#### 详细信息视图
+
+* **媒体管理**: 您可以上传、删除和查看示例图像和视频。您还可以通过将这些示例图像拖放到 ComfyUI 画布上来打开工作流。
+* **笔记**: 允许您保存详细信息，包括附加图像和外部链接。
+* **自动匹配**: 在模型选项卡的详细信息视图中显示。如果选中的模型在 Civitai 上可用，它会自动下载元数据、缩略图和示例图像。请注意，第一次执行可能需要更长时间，因为它会计算模型的哈希值。
+* **手动 URL**: 允许您通过手动输入 Civitai 或 Hugging Face 的 URL 来下载元数据。
+* **下载模型**: 从提供的 Civitai 或 Hugging Face URL 下载模型。对于 Hugging Face，您必须提供单个模型文件的直接链接。示例：(https://huggingface.co/lightx2v/Wan2.1-T2V-1.3B-longcat-step500/blob/main/adapter_model.safetensors)
+
+---
+
+#### 提示词模式
+
+1. 提示词模式与其他模式不同，它允许用户创建和修改新的提示词文件。
+
+2. 在左侧树状视图底部执行新建文件以创建新的提示词文件。
+
+3. 在树状视图中选择提示词文件，然后在中间选项卡底部使用新建添加新的提示词预设，使用编辑修改，使用删除移除。
+
+4. 右侧详细信息选项卡中的笔记和示例可以为每个提示词预设指定。
