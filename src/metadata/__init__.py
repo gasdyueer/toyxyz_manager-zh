@@ -142,17 +142,17 @@ def standardize_metadata(img) -> Dict[str, Any]:
                  res["type"] = "simpai" # Generic JSON type
                  
                  # Map Known Fields (SimpAI)
-                 res["main"]["steps"] = data.get("Steps")
-                 res["main"]["seed"] = data.get("Seed")
+                 res["main"]["steps"] = data.get("步数")
+                 res["main"]["seed"] = data.get("种子")
                  res["main"]["cfg"] = data.get("Guidance Scale") or data.get("Guidance") or data.get("ADM Guidance")
-                 res["main"]["sampler"] = data.get("Sampler")
-                 res["main"]["schedule"] = data.get("Scheduler")
+                 res["main"]["sampler"] = data.get("采样器")
+                 res["main"]["schedule"] = data.get("调度器r")
                  
-                 res["model"]["checkpoint"] = data.get("Base Model")
+                 res["model"]["checkpoint"] = data.get("Base 模型")
                  
                  # Prompts
                  res["prompts"]["positive"] = data.get("Prompt") or data.get("Full Prompt", "")
-                 res["prompts"]["negative"] = data.get("Negative Prompt") or data.get("Full Negative Prompt", "")
+                 res["prompts"]["negative"] = data.get("负面提示词") or data.get("Full 负面提示词", "")
                  
                  # Handle list prompts if occurred
                  if isinstance(res["prompts"]["positive"], list): 
@@ -161,7 +161,7 @@ def standardize_metadata(img) -> Dict[str, Any]:
                      res["prompts"]["negative"] = ", ".join([str(x) for x in res["prompts"]["negative"]])
                  
                  # Map all to ETC for safety
-                 exclude = ["Steps", "Seed", "Base Model", "Guidance Scale", "Sampler", "Scheduler", "Prompt", "Negative Prompt"]
+                 exclude = ["步数", "种子", "Base 模型", "Guidance Scale", "采样器", "调度器r", "Prompt", "负面提示词"]
                  for k, v in data.items():
                      if k not in exclude:
                          res["etc"][k] = v

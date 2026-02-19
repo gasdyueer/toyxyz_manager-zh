@@ -31,7 +31,7 @@ from ..utils.comfy_node_builder import ComfyNodeBuilder
 try:
     from PIL import Image
     from PIL.PngImagePlugin import PngInfo
-except ImportError:
+except  ImportError:
     pass
 try:
     import markdown
@@ -120,15 +120,15 @@ class ModelManagerWidget(BaseManagerWidget):
         center_btn_layout = QHBoxLayout()
         
         # [Feature] Copy ComfyUI Node
-        self.btn_copy_node = QPushButton("📋 Copy Node")
-        self.btn_copy_node.setToolTip("Copy as ComfyUI Node JSON (Ctrl+V in ComfyUI)")
+        self.btn_copy_node = QPushButton("📋 复制节点")
+        self.btn_copy_node.setToolTip("复制为ComfyUI节点JSON（在ComfyUI中Ctrl+V粘贴）")
         self.btn_copy_node.clicked.connect(self.copy_comfy_node)
         
-        self.btn_replace = QPushButton("🖼️ Change Thumb")
-        self.btn_replace.setToolTip("Change the thumbnail image for the selected model")
+        self.btn_replace = QPushButton("🖼️ 更改缩略图")
+        self.btn_replace.setToolTip("更改所选模型的缩略图")
         self.btn_replace.clicked.connect(self.replace_thumbnail)
-        btn_open = QPushButton("📂 Open Folder")
-        btn_open.setToolTip("Open the containing folder in File Explorer")
+        btn_open = QPushButton("📂 打开文件夹")
+        btn_open.setToolTip("在文件资源管理器中打开包含文件夹")
         btn_open.clicked.connect(self.open_current_folder)
         
         center_btn_layout.addWidget(self.btn_copy_node)
@@ -138,12 +138,12 @@ class ModelManagerWidget(BaseManagerWidget):
 
     def init_right_panel(self):
         meta_btns = QGridLayout()
-        btn_auto = QPushButton("⚡ Auto Match")
-        btn_auto.setToolTip("Automatically search Civitai for metadata by file hash")
-        btn_manual = QPushButton("🔗 Manual URL")
-        btn_manual.setToolTip("Manually enter a Civitai/HuggingFace URL to fetch metadata")
-        btn_download = QPushButton("⬇️ Download Model")
-        btn_download.setToolTip("Download a new model from a URL")
+        btn_auto = QPushButton("⚡ 自动匹配")
+        btn_auto.setToolTip("通过文件哈希自动在Civitai搜索元数据")
+        btn_manual = QPushButton("🔗 手动URL")
+        btn_manual.setToolTip("手动输入Civitai/HuggingFace URL获取元数据")
+        btn_download = QPushButton("⬇️ 下载模型")
+        btn_download.setToolTip("从URL下载新模型")
         
         btn_auto.clicked.connect(lambda: self.run_civitai("auto"))
         btn_manual.clicked.connect(lambda: self.run_civitai("manual"))
@@ -159,7 +159,7 @@ class ModelManagerWidget(BaseManagerWidget):
         # Tabs (from Base)
         self.tabs = self.setup_content_tabs()
         
-        # Download Tab Removed (User Request: Redundant with Task Monitor)
+        # Download Tab Removed (User Request: Redundant with 任务 Monitor)
         
         self.right_layout.addWidget(self.tabs)
 
@@ -184,14 +184,14 @@ class ModelManagerWidget(BaseManagerWidget):
             self.show_status_message("No model selected or file not found.", 3000)
             return
 
-        # Get Model Type from current folder config
+        # Get 模型 类型 from current folder config
         current_root_alias = self.folder_combo.currentText()
         folder_config = self.directories.get(current_root_alias, {})
         model_type = folder_config.get("model_type", "")
         
         if not model_type:
              QMessageBox.warning(self, "Configuration Required", 
-                                 f"Model Type is not configured for '{current_root_alias}'.\nPlease set it in Settings -> Registered Folders.")
+                                 f"模型 类型 is not configured for '{current_root_alias}'.\nPlease set it in 设置 -> 已注册文件夹.")
              return
             
         # [Feature] Support ComfyUI Root Override
@@ -248,19 +248,19 @@ class ModelManagerWidget(BaseManagerWidget):
             elif type_ == "dict":
                  # Assuming self.lbl_info is a QLabel to display messages
                  # If not, this line might need adjustment based on actual UI
-                 self.info_labels["Name"].setText("Select a model file to see details.")
+                 self.info_labels["名称"].setText("Select a model file to see details.")
                  self.info_labels["Ext"].setText("-")
-                 self.info_labels["Size"].setText("-")
-                 self.info_labels["Path"].setText("-")
-                 self.info_labels["Date"].setText("-")
+                 self.info_labels["大小"].setText("-")
+                 self.info_labels["路径"].setText("-")
+                 self.info_labels["日期"].setText("-")
                  self.preview_lbl.set_media(None)
                  self.tab_note.set_text("")
             else:
-                 self.info_labels["Name"].setText("Select a model file to see details.")
+                 self.info_labels["名称"].setText("Select a model file to see details.")
                  self.info_labels["Ext"].setText("-")
-                 self.info_labels["Size"].setText("-")
-                 self.info_labels["Path"].setText("-")
-                 self.info_labels["Date"].setText("-")
+                 self.info_labels["大小"].setText("-")
+                 self.info_labels["路径"].setText("-")
+                 self.info_labels["日期"].setText("-")
                  self.preview_lbl.set_media(None)
                  self.tab_note.set_text("")
 
@@ -270,11 +270,11 @@ class ModelManagerWidget(BaseManagerWidget):
         
         # Update Info Labels
         ext = os.path.splitext(filename)[1]
-        self.info_labels["Name"].setText(filename)
+        self.info_labels["名称"].setText(filename)
         self.info_labels["Ext"].setText(ext)
-        self.info_labels["Size"].setText(size_str)
-        self.info_labels["Date"].setText(date_str)
-        self.info_labels["Path"].setText(path)
+        self.info_labels["大小"].setText(size_str)
+        self.info_labels["日期"].setText(date_str)
+        self.info_labels["路径"].setText(path)
         
         self.preview_lbl.set_media(preview_path)
         
@@ -306,7 +306,7 @@ class ModelManagerWidget(BaseManagerWidget):
                 with open(json_path, 'r', encoding='utf-8') as f: data = json.load(f)
             data["user_note"] = content
             with open(json_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4, ensure_ascii=False)
-        except Exception as e: logging.error(f"Save Error: {e}")
+        except Exception as e: logging.error(f"Save 错误: {e}")
 
 
 
@@ -328,7 +328,7 @@ class ModelManagerWidget(BaseManagerWidget):
                 QTimer.singleShot(200, lambda: self._load_details(model_path))
 
     def _on_batch_processed(self):
-        self.show_status_message("Batch Processed.")
+        self.show_status_message("Batch 已处理.")
         # Resume download queue if we were in a chain
         self.downl_controller.resume()
 
@@ -354,7 +354,7 @@ class ModelManagerWidget(BaseManagerWidget):
             url, target_dir = dlg.get_data()
             if not url: return
             if not os.path.exists(target_dir):
-                QMessageBox.warning(self, "Error", "Selected directory does not exist.")
+                QMessageBox.warning(self, "错误", "Selected directory does not exist.")
                 return
 
             self.last_download_dir = target_dir
@@ -378,8 +378,8 @@ class ModelManagerWidget(BaseManagerWidget):
              self.downl_controller.resume() # Process next immediately
 
     def _on_download_error_controller(self, err_msg):
-        self.show_status_message(f"Download Error: {err_msg}")
-        QMessageBox.critical(self, "Download Failed", err_msg)
+        self.show_status_message(f"Download 错误: {err_msg}")
+        QMessageBox.critical(self, "Download 失败", err_msg)
         self.downl_controller.resume()
 
 

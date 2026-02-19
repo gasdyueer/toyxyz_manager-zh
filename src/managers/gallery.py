@@ -96,15 +96,15 @@ class GalleryManagerWidget(BaseManagerWidget):
         if type_ == "file" and path and os.path.exists(path):
             self.current_path = path
 
-            # 0. Load Common Details (Info Panel)
+            # 0. Load Common 详情s (Info Panel)
             filename, size_str, date_str, preview_path = self._load_common_file_details(path)
             
             ext = os.path.splitext(filename)[1]
-            self.info_labels["Name"].setText(filename)
+            self.info_labels["名称"].setText(filename)
             self.info_labels["Ext"].setText(ext)
-            self.info_labels["Size"].setText(size_str)
-            self.info_labels["Date"].setText(date_str)
-            self.info_labels["Path"].setText(path)
+            self.info_labels["大小"].setText(size_str)
+            self.info_labels["日期"].setText(date_str)
+            self.info_labels["路径"].setText(path)
             
             # 1. Update Preview
             # [Fix] In Gallery mode, we must show exactly what is selected.
@@ -124,11 +124,11 @@ class GalleryManagerWidget(BaseManagerWidget):
             self.current_path = None
             
             # Clear Info Panel
-            self.info_labels["Name"].setText("-")
+            self.info_labels["名称"].setText("-")
             self.info_labels["Ext"].setText("-")
-            self.info_labels["Size"].setText("-")
-            self.info_labels["Path"].setText("-")
-            self.info_labels["Date"].setText("-")
+            self.info_labels["大小"].setText("-")
+            self.info_labels["路径"].setText("-")
+            self.info_labels["日期"].setText("-")
 
     def _on_meta_ready(self, path, meta):
         """
@@ -153,7 +153,7 @@ class GalleryManagerWidget(BaseManagerWidget):
             try:
                 os.startfile(self.current_path)
             except OSError as e:
-                logging.error(f"Failed to open file: {e}")
+                logging.error(f"失败 to open file: {e}")
 
     def collect_active_workers(self):
         """Override to include the gallery-specific metadata worker."""

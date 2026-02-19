@@ -26,7 +26,7 @@ def extract_webui_parameters(img) -> str:
     def is_valid_params(text):
         if not text: return False
         s = text.lower()
-        # "Steps: 20, Sampler: Euler a"
+        # "步数: 20, 采样器: Euler a"
         if text.strip().startswith("{") and text.strip().endswith("}"): return True
         return "steps:" in s and "sampler:" in s
 
@@ -38,7 +38,7 @@ def extract_webui_parameters(img) -> str:
     # We collect all potential user comments from various Exif sources
     exif_values = []
 
-    # Source A: Modern getexif() + Exif IFD
+    # Source A: 模式rn getexif() + Exif IFD
     if hasattr(img, "getexif"):
         try:
             exif = img.getexif()

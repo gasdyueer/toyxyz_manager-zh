@@ -15,15 +15,15 @@ class ComfyNodeBuilder:
     3. Encodes this JSON into a specific HTML format that ComfyUI's clipboard handler expects.
     """
 
-    # Mapping from internal folder types to ComfyUI Node Class Names
+    # Mapping from internal folder types to ComfyUI Node Class 名称s
     NODE_TYPE_MAPPING = {
         "checkpoints": "CheckpointLoaderSimple",
-        "loras": "LoraLoaderModelOnly",
+        "loras": "LoraLoader模型Only",
         "vae": "VAELoader",
         "controlnet": "ControlNetLoader",
         "clip": "CLIPLoader",
         "unet": "UNETLoader",
-        "upscale_models": "UpscaleModelLoader",
+        "upscale_models": "Upscale模型Loader",
         "diffusers": "DiffusersLoader",
         "diffusion_models": "UNETLoader",
     }
@@ -49,7 +49,7 @@ class ComfyNodeBuilder:
                 # [Fix] ComfyUI expects standard separators (often forward slashes work best even on Win)
                 # But let's keep it native or just ensure it's not absolute.
                 # Actually, ComfyUI on Windows is fine with backslashes, but we should ensure.
-            except ValueError:
+            except Value错误:
                 filename = os.path.basename(file_path)
         else:
             filename = os.path.basename(file_path)
@@ -59,7 +59,7 @@ class ComfyNodeBuilder:
              name_without_ext = os.path.splitext(os.path.basename(filename))[0]
              return f"embedding:{name_without_ext}"
 
-        # Standard Node Types
+        # Standard Node 类型s
         node_type = ComfyNodeBuilder.NODE_TYPE_MAPPING.get(model_type)
         
         if not node_type:

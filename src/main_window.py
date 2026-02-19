@@ -19,7 +19,7 @@ class ModelManagerWindow(QMainWindow):
     def __init__(self, debug_mode=False):
         super().__init__()
         self.debug_mode = debug_mode
-        self.setWindowTitle("toyxyz manager")
+        self.setWindowTitle("toyxyz 管理器")
         self.resize(1500, 950)
         
         self.app_settings = {"civitai_api_key": "", "hf_api_key": "", "cache_path": ""}
@@ -30,7 +30,7 @@ class ModelManagerWindow(QMainWindow):
         
         if not HAS_PILLOW:
             QTimer.singleShot(500, lambda: QMessageBox.warning(
-                self, "Missing Library", "Pillow is missing. Image features will not work.\n\nRun: pip install pillow"
+                self, "缺少库", "缺少 Pillow 库。图像功能将无法工作。\n\n运行: pip install pillow"
             ))
 
         self._init_ui()
@@ -46,7 +46,7 @@ class ModelManagerWindow(QMainWindow):
         os.system('cls' if os.name == 'nt' else 'clear')
         
         info = []
-        info.append("=== TOYXYZ MANAGER DEBUG MODE ===")
+        info.append("=== TOYXYZ 管理器调试模式 ===")
         
         # 1. Global Stats
         try:
@@ -55,14 +55,14 @@ class ModelManagerWindow(QMainWindow):
             mem_info = process.memory_info()
             rss_mb = mem_info.rss / 1024 / 1024
             vms_mb = mem_info.vms / 1024 / 1024
-            info.append(f"Memory (RSS): {rss_mb:.2f} MB")
-            info.append(f"Memory (VMS): {vms_mb:.2f} MB")
+            info.append(f"内存 (RSS): {rss_mb:.2f} MB")
+            info.append(f"内存 (VMS): {vms_mb:.2f} MB")
         except ImportError:
-            info.append(f"Memory Usage: (psutil not installed) GC Count: {gc.get_count()}")
+            info.append(f"内存使用: (psutil not installed) GC Count: {gc.get_count()}")
             
-        info.append(f"Active Threads: {threading.active_count()}")
+        info.append(f"活动线程: {threading.active_count()}")
         objs = gc.get_objects()
-        info.append(f"GC Objects: {len(objs)}")
+        info.append(f"GC对象: {len(objs)}")
 
         # [Debug] Granular Object Counting
         from PySide6.QtGui import QPixmap, QImage
@@ -80,12 +80,12 @@ class ModelManagerWindow(QMainWindow):
                 elif isinstance(o, QThread): counts["QThread"] += 1
             except: pass
             
-        info.append(f"Details: Pixmap={counts['QPixmap']} | Image={counts['QImage']} | Player={counts['QMediaPlayer']} | VideoW={counts['QVideoWidget']} | Thread={counts['QThread']}")
+        info.append(f"详情: 位图={counts['QPixmap']} | 图像={counts['QImage']} | 播放器={counts['QMediaPlayer']} | 视频窗口={counts['QVideoWidget']} | 线程={counts['QThread']}")
         
         # 2. Managers
         if hasattr(self, 'model_manager'):
             m_stats = self.model_manager.get_debug_info()
-            info.append(f"\n[Model Manager]")
+            info.append(f"\n[模型 Manager]")
             info.append(f"  - Scanners: {m_stats['scanners_active']}")
             info.append(f"  - Loader Queue: {m_stats['loader_queue']}")
             info.append(f"  - Tree Items: {m_stats['tree_items']}")
@@ -102,17 +102,17 @@ class ModelManagerWindow(QMainWindow):
             info.append(f"  - Scanners: {w_stats['scanners_active']}")
             info.append(f"  - Loader Queue: {w_stats['loader_queue']}")
         
-        # 3. Active Media Details
+        # 3. Active Media 详情s
         info.append(f"\n[Active Media]")
         
-        # Collect from Model Manager
+        # Collect from 模型 Manager
         if hasattr(self, 'model_manager'):
             # Preview image
             if hasattr(self.model_manager, 'preview_lbl'):
                 media_info = self.model_manager.preview_lbl.get_media_info()
                 if media_info:
-                    info.append(f"  [Model Preview] {media_info['filename']}")
-                    info.append(f"    Type: {media_info['type']} | Size: {media_info['size_mb']:.2f}MB | Res: {media_info.get('resolution', 'N/A')}")
+                    info.append(f"  [模型 Preview] {media_info['filename']}")
+                    info.append(f"    类型: {media_info['type']} | Size: {media_info['size_mb']:.2f}MB | Res: {media_info.get('resolution', 'N/A')}")
                     if media_info['type'] == 'video':
                         info.append(f"    Playing: {media_info.get('playing', False)} | Duration: {media_info.get('duration_sec', 0):.1f}s")
             
@@ -121,7 +121,7 @@ class ModelManagerWindow(QMainWindow):
                 example_media = self.model_manager.tab_example.lbl_img.get_media_info()
                 if example_media:
                     info.append(f"  [Example] {example_media['filename']}")
-                    info.append(f"    Type: {example_media['type']} | Size: {example_media['size_mb']:.2f}MB | Res: {example_media.get('resolution', 'N/A')}")
+                    info.append(f"    类型: {example_media['type']} | Size: {example_media['size_mb']:.2f}MB | Res: {example_media.get('resolution', 'N/A')}")
                     if example_media['type'] == 'video':
                         info.append(f"    Playing: {example_media.get('playing', False)} | Duration: {example_media.get('duration_sec', 0):.1f}s")
 
@@ -135,19 +135,19 @@ class ModelManagerWindow(QMainWindow):
         
         # Header
         header = QHBoxLayout()
-        # [User Request] Remove redundant title/icon, place Settings button here instead
-        btn_settings = QPushButton("⚙️ Settings")
-        btn_settings.setToolTip("Open Application Settings")
+        # [User Request] Remove redundant title/icon, place 设置 button here instead
+        btn_settings = QPushButton("⚙️ 设置")
+        btn_settings.setToolTip("打开应用程序设置")
         btn_settings.clicked.connect(self.open_settings)
         header.addWidget(btn_settings)
         header.addStretch() # Push everything else to right (if any)
         layout.addLayout(header)
         
-        # Tab Widget (Mode Switcher)
+        # Tab Widget (模式 Switcher)
         self.mode_tabs = QTabWidget()
         # self.mode_tabs.setStyleSheet(...) -> Moved to QSS
         
-        # Initialize Task Monitor (Global)
+        # Initialize 任务 Monitor (Global)
         self.task_monitor = TaskMonitorWidget()
 
         # Initialize Managers
@@ -155,20 +155,20 @@ class ModelManagerWindow(QMainWindow):
         self.workflow_manager = WorkflowManagerWidget(self.directories, self.app_settings, self.task_monitor, self)
         self.prompt_manager = PromptManagerWidget(self.directories, self.app_settings, self)
         
-        self.mode_tabs.addTab(self.model_manager, "Model")
-        self.mode_tabs.addTab(self.workflow_manager, "Workflow")
-        self.mode_tabs.addTab(self.prompt_manager, "Prompt")
+        self.mode_tabs.addTab(self.model_manager, "模型")
+        self.mode_tabs.addTab(self.workflow_manager, "工作流")
+        self.mode_tabs.addTab(self.prompt_manager, "提示词")
         
         self.gallery_manager = GalleryManagerWidget(self.directories, self.app_settings, self)
-        self.mode_tabs.addTab(self.gallery_manager, "Gallery")
+        self.mode_tabs.addTab(self.gallery_manager, "画廊")
         
-        self.mode_tabs.addTab(self.task_monitor, "Tasks")
+        self.mode_tabs.addTab(self.task_monitor, "任务")
         
         # [Video Memory Optimization] Handle tab switching
         self.mode_tabs.currentChanged.connect(self._on_tab_changed)
         
         layout.addWidget(self.mode_tabs)
-        self.statusBar().showMessage("Ready")
+        self.statusBar().showMessage("就绪")
 
     def _on_tab_changed(self, index):
         """Handle tab switching to release resources of hidden tabs."""

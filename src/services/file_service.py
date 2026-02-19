@@ -26,7 +26,7 @@ class FileService:
                     sha256.update(chunk)
             return sha256.hexdigest().upper()
         except OSError as e:
-            logging.error(f"[FileService] Hash calculation error: {e}")
+            logging.error(f"[FileService] 哈希 calculation error: {e}")
             return ""
 
     def get_cached_hash(self, model_path, directories, cache_mode="model", status_signal=None):
@@ -53,7 +53,7 @@ class FileService:
                     cached_mtime = data.get("mtime_check")
                     if cached_hash and cached_mtime == file_mtime:
                         return cached_hash, True
-            except (OSError, json.JSONDecodeError): pass
+            except (OSError, json.JSONDecode错误): pass
 
         # Calculate
         if status_signal: status_signal.emit("Calculating SHA256 (First run)...")
@@ -75,7 +75,7 @@ class FileService:
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(new_data, f, indent=4, ensure_ascii=False)
         except Exception as e:
-            logging.warning(f"[FileService] Failed to save hash cache: {e}")
+            logging.warning(f"[FileService] 失败 to save hash cache: {e}")
 
         return calculated_hash, False
 
@@ -130,5 +130,5 @@ class FileService:
                 shutil.copy2(found_file, dest_path)
                 return dest_path
         except Exception as e:
-            logging.warning(f"[FileService] Failed to auto-set thumbnail: {e}")
+            logging.warning(f"[FileService] 失败 to auto-set thumbnail: {e}")
         return None

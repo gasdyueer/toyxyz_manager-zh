@@ -13,6 +13,6 @@ class StyleManager:
                     app.setStyleSheet(qss)
                     logging.info(f"[StyleManager] Loaded stylesheet from {style_path}")
             except Exception as e:
-                logging.error(f"[StyleManager] Failed to load stylesheet: {e}")
+                logging.error(f"[StyleManager] 失败 to load stylesheet: {e}")
         else:
             logging.warning(f"[StyleManager] Stylesheet not found at {style_path}")

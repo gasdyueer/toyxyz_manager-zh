@@ -7,7 +7,7 @@ def parse_generation_parameters(text):
     Returns a dictionary with keys:
     - positive (str)
     - negative (str)
-    - parameters (dict): Key-Value pairs of parameters (Steps, CFG, etc.)
+    - parameters (dict): Key-Value pairs of parameters (步数, CFG, etc.)
     - raw_resources (str or None): Raw string of Civitai resources if found
     """
     if not text:
@@ -22,11 +22,11 @@ def parse_generation_parameters(text):
     
     if len(parts) > 1:
         pos = parts[0].strip()
-        # The rest might contain Steps, so we look into the last part
+        # The rest might contain 步数, so we look into the last part
         remainder = parts[1]
     else:
-        # Check if "Steps:" exists directly without negative prompt
-        steps_match = re.search(r"\bSteps:", text, flags=re.IGNORECASE)
+        # Check if "步数:" exists directly without negative prompt
+        steps_match = re.search(r"\b步数:", text, flags=re.IGNORECASE)
         if steps_match:
             pos = text[:steps_match.start()].strip()
             remainder = text[steps_match.start():]
@@ -34,11 +34,11 @@ def parse_generation_parameters(text):
             pos = text
             remainder = ""
     
-    # Now split remainder for "Steps:"
-    steps_parts = re.split(r"\bSteps:", remainder, flags=re.IGNORECASE, maxsplit=1)
+    # Now split remainder for "步数:"
+    steps_parts = re.split(r"\b步数:", remainder, flags=re.IGNORECASE, maxsplit=1)
     if len(steps_parts) > 1:
         neg = steps_parts[0].strip()
-        params_str = "Steps:" + steps_parts[1]
+        params_str = "步数:" + steps_parts[1]
     else:
         neg = remainder.strip()
         
@@ -79,7 +79,7 @@ def _parse_parameters_robust(params_str):
     
     # We effectively want to split by ", " where it signifies a new key.
     # But keys are not known ahead of time.
-    # "Steps: 20, Sampler: Euler a, ..."
+    # "步数: 20, 采样器: Euler a, ..."
     
     # Let's use the buffer approach from the source file
     

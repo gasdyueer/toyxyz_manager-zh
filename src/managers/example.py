@@ -290,7 +290,7 @@ class ExampleTabWidget(QWidget):
         except Exception as e:
              # Restore image if failed (try to reload what we can)
              logging.warning(f"Delete failed: {e}")
-             QMessageBox.warning(self, "Error", f"Failed to delete file:\n{e}")
+             QMessageBox.warning(self, "错误", f"失败 to delete file:\n{e}")
              # Try to reload current image back if it still exists
              if os.path.exists(path):
                 self.lbl_img.set_media(path)
@@ -299,7 +299,7 @@ class ExampleTabWidget(QWidget):
         if not self.example_images: return
         f = os.path.dirname(self.example_images[0])
         try: os.startfile(f)
-        except Exception as e: self.status_message.emit(f"Failed to open folder: {e}")
+        except Exception as e: self.status_message.emit(f"失败 to open folder: {e}")
 
     def on_example_click(self):
         path = self.lbl_img.get_current_path()
@@ -366,7 +366,7 @@ class ExampleTabWidget(QWidget):
                 try: 
                     os.remove(path)
                 except Exception as e:
-                    logging.warning(f"Failed to remove original file: {e}")
+                    logging.warning(f"失败 to remove original file: {e}")
                 
                 self.status_message.emit("Converted to PNG and saved metadata.")
                 # Reload list because filename changed, but try to keep selection on the new file
@@ -377,7 +377,7 @@ class ExampleTabWidget(QWidget):
                 self.load_examples(self.current_item_path, target_filename=os.path.basename(new_path))
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save metadata: {e}")
+            QMessageBox.critical(self, "错误", f"失败 to save metadata: {e}")
 
     def _parse_and_display_meta(self, path):
         self._clear_meta()
@@ -401,15 +401,15 @@ class ExampleTabWidget(QWidget):
             return # Stale result
             
         try:
-            # Update Status Icon based on standardized type
+            # Update 状态 Icon based on standardized type
             if meta["type"] == "comfy":
                 self.lbl_wf_status.setText("Workflow")
                 self.lbl_wf_status.setToolTip("Contains ComfyUI Workflow (JSON)")
-                self.lbl_wf_status.setObjectName("WorkflowStatus_Success")
+                self.lbl_wf_status.setObjectName("Workflow状态_Success")
             else:
                 self.lbl_wf_status.setText("no workflow")
                 self.lbl_wf_status.setToolTip("No ComfyUI workflow metadata found")
-                self.lbl_wf_status.setObjectName("WorkflowStatus_Normal")
+                self.lbl_wf_status.setObjectName("Workflow状态_Normal")
             
             # Force style reload
             self.lbl_wf_status.style().unpolish(self.lbl_wf_status)
@@ -420,12 +420,12 @@ class ExampleTabWidget(QWidget):
             
         except Exception as e: 
             logging.warning(f"Meta parse error: {e}")
-            self.meta_viewer.txt_etc.setText(f"Error: {e}")
+            self.meta_viewer.txt_etc.setText(f"错误: {e}")
 
     def _clear_meta(self):
         self.meta_viewer.clear()
         self.lbl_wf_status.setText("No Workflow")
-        self.lbl_wf_status.setObjectName("WorkflowStatus_Neutral")
+        self.lbl_wf_status.setObjectName("Workflow状态_Neutral")
         self.lbl_wf_status.style().unpolish(self.lbl_wf_status)
         self.lbl_wf_status.style().polish(self.lbl_wf_status)
         self._raw_civitai_resources = None # Legacy, maybe unused now? keeping safe.

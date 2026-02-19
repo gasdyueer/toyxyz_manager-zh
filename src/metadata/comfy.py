@@ -4,7 +4,7 @@ from typing import Dict, Any
 def parse_comfy_workflow(workflow_data) -> Dict[str, Any]:
     """
     Parses ComfyUI workflow JSON to extract basic generation parameters.
-    Attempts to find KSampler, CheckpointLoader, etc.
+    Attempts to find K采样器, CheckpointLoader, etc.
     """
     result = {}
     
@@ -33,8 +33,8 @@ def parse_comfy_workflow(workflow_data) -> Dict[str, Any]:
                 return node
         return None
 
-    # KSampler
-    ksampler = find_node(["KSampler", "KSamplerAdvanced", "KSampler (Efficient)"])
+    # K采样器
+    ksampler = find_node(["K采样器", "K采样器Advanced", "K采样器 (Efficient)"])
     if ksampler and "inputs" in ksampler:
         inputs = ksampler["inputs"]
         result["seed"] = inputs.get("seed") or inputs.get("noise_seed")

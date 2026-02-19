@@ -154,7 +154,7 @@ class ImageLoader(QThread):
                                 del reader
                                 
                 except Exception as e: 
-                    logging.warning(f"Failed to load image {path}: {e}")
+                    logging.warning(f"失败 to load image {path}: {e}")
 
                 self.image_loaded.emit(path, image)
                 
@@ -401,8 +401,8 @@ class MetadataWorker(QThread):
                             self.stop(); break
                         
                     if should_skip:
-                        self.task_progress.emit(model_path, "Skipped (Exists)", 100)
-                        self.status_update.emit(f"Skipped: {filename}")
+                        self.task_progress.emit(model_path, "已跳过 (Exists)", 100)
+                        self.status_update.emit(f"已跳过: {filename}")
                         continue
 
                 self.task_progress.emit(model_path, "Starting...", 0)
@@ -418,18 +418,18 @@ class MetadataWorker(QThread):
                 version_id = None
 
                 if self.mode == "auto":
-                    self.task_progress.emit(model_path, "Checking Hash...", 10)
+                    self.task_progress.emit(model_path, "Checking 哈希...", 10)
                     file_hash, is_cached = self.file_service.get_cached_hash(
                         model_path, self.directories, self.cache_mode, self.status_update
                     )
                     
                     if not self._is_running: break
-                    if not file_hash: raise Exception("Failed to calculate hash.")
+                    if not file_hash: raise Exception("失败 to calculate hash.")
 
-                    if is_cached: self.task_progress.emit(model_path, "Hash Cached", 30)
-                    else: self.task_progress.emit(model_path, "Hashing Done", 30)
+                    if is_cached: self.task_progress.emit(model_path, "哈希 已缓存", 30)
+                    else: self.task_progress.emit(model_path, "哈希ing 完成", 30)
 
-                    self.task_progress.emit(model_path, "Searching Civitai...", 40)
+                    self.task_progress.emit(model_path, "搜索中 Civitai...", 40)
                     version_data = self.api_service.fetch_civitai_version(file_hash)
                     model_id = version_data.get("modelId")
                     version_id = version_data.get("id")
@@ -444,7 +444,7 @@ class MetadataWorker(QThread):
                     self.task_progress.emit(model_path, "Not Found", 0)
                     continue
                 
-                self.task_progress.emit(model_path, "Fetching Details...", 50)
+                self.task_progress.emit(model_path, "获取中 详情s...", 50)
                 model_data = self.api_service.fetch_civitai_model(model_id)
                 if not self._is_running: break
 
@@ -461,7 +461,7 @@ class MetadataWorker(QThread):
                 model_url = f"https://civitai.com/models/{model_id}"
                 trained_words = target_version.get("trainedWords", []) if target_version else []
                 trigger_str = ", ".join(trained_words) if trained_words else "None"
-                base_model = target_version.get("baseModel", "Unknown") if target_version else "Unknown"
+                base_model = target_version.get("base模型", "Unknown") if target_version else "Unknown"
                 
                 model_desc_html = model_data.get("description", "") or ""
                 ver_desc_html = target_version.get("description", "") or "" if target_version else ""
@@ -473,16 +473,16 @@ class MetadataWorker(QThread):
                     model_desc_md = model_desc_html
                     ver_desc_md = ver_desc_html
 
-                note_content = [f"# {name}", f"**Link:**\n[{model_url}]({model_url})", f"**Creator:**\n{creator}", f"**Base Model:**\n{base_model}", f"**Trigger Words:**\n`{trigger_str}`", "\n---"]
+                note_content = [f"# {name}", f"**Link:**\n[{model_url}]({model_url})", f"**Creator:**\n{creator}", f"**Base 模型:**\n{base_model}", f"**Trigger Words:**\n`{trigger_str}`", "\n---"]
                 if ver_desc_md:
                     note_content.append("## Version Info")
                     note_content.append(ver_desc_md)
                     note_content.append("\n---")
-                note_content.append("## Model Description")
+                note_content.append("## 模型 Description")
                 note_content.append(model_desc_md)
 
                 full_desc = "\n\n".join(note_content)
-                self.task_progress.emit(model_path, "Downloading...", 70)
+                self.task_progress.emit(model_path, "下载中...", 70)
                 full_desc = self._process_embedded_images(full_desc, model_path)
 
                 preview_urls = []
@@ -494,25 +494,25 @@ class MetadataWorker(QThread):
                     self.file_service.try_set_thumbnail_from_cache(model_path, self.directories, self.cache_mode)
                     self.status_update.emit(f"Auto-set thumbnail checked for {filename}")
 
-                self.task_progress.emit(model_path, "Done", 100)
-                self.model_processed.emit(True, "Processed", {"description": full_desc}, model_path)
+                self.task_progress.emit(model_path, "完成", 100)
+                self.model_processed.emit(True, "已处理", {"description": full_desc}, model_path)
                 success_count += 1
                 
             except Exception as e:
-                logging.error(f"Error processing {model_path}: {e}")
-                self.task_progress.emit(model_path, "Error", 0)
+                logging.error(f"错误 processing {model_path}: {e}")
+                self.task_progress.emit(model_path, "错误", 0)
                 self.model_processed.emit(False, str(e), {}, model_path)
             
             time.sleep(0.5)
             
         if self._is_running:
-            self.status_update.emit(f"Batch Done. ({success_count}/{total_files} succeeded)")
+            self.status_update.emit(f"Batch 完成. ({success_count}/{total_files} succeeded)")
         else:
             self.status_update.emit("Batch Cancelled.")
 
 
     def _process_huggingface(self, model_path, url):
-        self.task_progress.emit(model_path, "Fetching HF Info...", 20)
+        self.task_progress.emit(model_path, "获取中 HF Info...", 20)
         match = re.search(r'huggingface\.co/([^/]+)/([^/?#]+)', url)
         if not match: raise Exception("Invalid Hugging Face URL format.")
         repo_id = f"{match.group(1)}/{match.group(2)}"
@@ -523,9 +523,9 @@ class MetadataWorker(QThread):
         last_modified = model_data.get("lastModified", "Unknown")
         readme_content = self.api_service.fetch_hf_readme(repo_id)
         
-        self.task_progress.emit(model_path, "Downloading...", 50)
+        self.task_progress.emit(model_path, "下载中...", 50)
         
-        note_content = [f"# {repo_id}", f"**Link:**\n[{url}]({url})", f"**Author:** {author}", f"**Last Modified:** {last_modified}", f"**Tags:** `{', '.join(tags)}`", "\n---", "## Model Card (README.md)", readme_content]
+        note_content = [f"# {repo_id}", f"**Link:**\n[{url}]({url})", f"**Author:** {author}", f"**Last Modified:** {last_modified}", f"**Tags:** `{', '.join(tags)}`", "\n---", "## 模型 Card (README.md)", readme_content]
         full_desc = "\n\n".join(note_content)
         
         siblings = model_data.get("siblings", [])
@@ -539,8 +539,8 @@ class MetadataWorker(QThread):
             self._download_preview_images(image_urls, model_path)
             self.file_service.try_set_thumbnail_from_cache(model_path, self.directories, self.cache_mode)
         
-        self.task_progress.emit(model_path, "Done", 100)
-        self.model_processed.emit(True, "Hugging Face Data Processed", {"description": full_desc}, model_path)
+        self.task_progress.emit(model_path, "完成", 100)
+        self.model_processed.emit(True, "Hugging Face Data 已处理", {"description": full_desc}, model_path)
 
 
     def _process_embedded_images(self, text, model_path):
@@ -564,7 +564,7 @@ class MetadataWorker(QThread):
              text = re.sub(r'!\[(.*?)\]\((.*?)\)', replace_md, text)
              text = re.sub(r'(<img[^>]+src=["\'])(.*?)(["\'][^>]*>)', replace_html, text)
         except Exception as e:
-             logging.warning(f"Error processing embedded images: {e}")
+             logging.warning(f"错误 processing embedded images: {e}")
         return text
 
     def _download_preview_images(self, urls, model_path):
@@ -596,7 +596,7 @@ class MetadataWorker(QThread):
                             img.close()
                             if os.path.exists(new_path): os.remove(fpath)
                         except Exception as e:
-                            logging.warning(f"[AutoConvert] Failed to convert {os.path.basename(fpath)}: {e}")
+                            logging.warning(f"[AutoConvert] 失败 to convert {os.path.basename(fpath)}: {e}")
             except Exception as e: logging.error(f"Preview download error: {e}")
             
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -606,9 +606,9 @@ class MetadataWorker(QThread):
                     break
 
 # ==========================================
-# Model Download Worker (Restored)
+# 模型 Download Worker (Restored)
 # ==========================================
-class ModelDownloadWorker(QThread):
+class 模型DownloadWorker(QThread):
     progress = Signal(str, str, int)
     finished = Signal(str, str)
     error = Signal(str)
@@ -644,7 +644,7 @@ class ModelDownloadWorker(QThread):
         try:
             self.progress.emit(self.task_key, "Resolving...", 0)
             
-            # 1. Resolve Info (Name, etc.)
+            # 1. Resolve Info (名称, etc.)
             model_id = None
             version_id = None
             match_m = re.search(r'models/(\d+)', self.url)
@@ -713,12 +713,12 @@ class ModelDownloadWorker(QThread):
                 fname = None
 
             # 3. Download
-            self.progress.emit(self.task_key, "Downloading...", 0)
+            self.progress.emit(self.task_key, "下载中...", 0)
             
             def progress_cb(dl, total):
                 if total > 0:
                     pct = int((dl / total) * 100)
-                    self.progress.emit(self.task_key, "Downloading", pct)
+                    self.progress.emit(self.task_key, "下载中", pct)
             
             final_path = self.net_client.download_file(
                 download_url, self.target_dir, filename=fname, progress_callback=progress_cb,
@@ -726,7 +726,7 @@ class ModelDownloadWorker(QThread):
             )
             
             if final_path:
-                self.finished.emit("Download Complete", final_path)
+                self.finished.emit("Download 完成", final_path)
             else:
                 self.error.emit("Download failed (No path returned)")
 

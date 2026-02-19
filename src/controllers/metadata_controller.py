@@ -26,7 +26,7 @@ class MetadataController(QObject):
     def run_civitai(self, mode, targets, manual_url_override=None, overwrite_behavior_override=None):
         if not targets: return
 
-        # Validate Manual Mode
+        # Validate Manual 模式
         manual_url = None
         if mode == "manual":
             if manual_url_override:
@@ -36,7 +36,7 @@ class MetadataController(QObject):
                     QMessageBox.warning(self.parent_widget, "Warning", "Manual mode supports only single file selection.")
                     return
                 # Ask UI for input (Blocking)
-                url, ok = QInputDialog.getText(self.parent_widget, "Manual URL", "Enter Civitai or HuggingFace Model URL:")
+                url, ok = QInputDialog.getText(self.parent_widget, "Manual URL", "Enter Civitai or HuggingFace 模型 URL:")
                 if not ok or not url: return
                 manual_url = url
 
@@ -71,7 +71,7 @@ class MetadataController(QObject):
         # Enqueue or Run
         if self.worker and self.worker.isRunning():
             self.queue.append((mode, final_targets, manual_url, worker_overwrite))
-            self.status_message.emit(f"Task queued. (Queue size: {len(self.queue)})", 3000)
+            self.status_message.emit(f"任务 queued. (Queue size: {len(self.queue)})", 3000)
         else:
             self._start_worker(mode, final_targets, manual_url, worker_overwrite)
 
@@ -127,7 +127,7 @@ class MetadataController(QObject):
         """Checks if metadata exists."""
         conflicts = []
         # Need cache root logic that matches BaseManager...
-        # We can duplicate the simple logic or ask AppSettings
+        # We can duplicate the simple logic or ask App设置
         cache_root = self.app_settings.get("cache_path", "")
         if not cache_root:
              from ..core import CACHE_DIR_NAME

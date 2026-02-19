@@ -42,7 +42,7 @@ class SmartMediaWidget(QWidget):
         main_layout.addWidget(self.stack)
         self.setLayout(main_layout)
 
-        self.lbl_image = QLabel("No Media")
+        self.lbl_image = QLabel("无媒体")
         self.lbl_image.setObjectName("media_label")
         self.lbl_image.setAlignment(Qt.AlignCenter)
         self._original_pixmap = None
@@ -129,7 +129,7 @@ class SmartMediaWidget(QWidget):
              self.current_path = None
              self.is_video = False
              self.stack.setCurrentWidget(self.lbl_image)
-             self.lbl_image.setText("No Media")
+             self.lbl_image.setText("无媒体")
              return
              
         self.current_path = path # Update current_path here
@@ -138,7 +138,7 @@ class SmartMediaWidget(QWidget):
             self._destroy_video_components()
             self.is_video = False
             self.stack.setCurrentWidget(self.lbl_image)
-            self.lbl_image.setText("No Media")
+            self.lbl_image.setText("无媒体")
             return
 
         ext = os.path.splitext(path)[1].lower()
@@ -173,7 +173,7 @@ class SmartMediaWidget(QWidget):
              self._stop_movie()
              
              self.stack.setCurrentWidget(self.lbl_image)
-             self.lbl_image.setText("Loading Animation...")
+             self.lbl_image.setText("加载动画中...")
              
              self._start_movie(path)
         else:
@@ -185,7 +185,7 @@ class SmartMediaWidget(QWidget):
             
             self.is_video = False
             self.stack.setCurrentWidget(self.lbl_image)
-            self.lbl_image.setText("Loading...")
+            self.lbl_image.setText("加载中...")
             if self.loader:
                 self.loader.load_image(path, target_width)
             else:
@@ -217,7 +217,7 @@ class SmartMediaWidget(QWidget):
             
         except Exception as e:
             logging.warning(f"Movie load error: {e}")
-            self.lbl_image.setText("Anim Error")
+            self.lbl_image.setText("动画错误")
 
     def _stop_movie(self):
         if self._movie:
@@ -265,19 +265,19 @@ class SmartMediaWidget(QWidget):
                 self.media_player.play()
 
     def _on_media_error(self):
-        self.lbl_image.setText("Video Error")
+        self.lbl_image.setText("视频错误")
         self.stack.setCurrentWidget(self.lbl_image)
 
     def _load_image_sync(self, path, target_width=1024):
         # Synchrnous loading using QImageReader
         try:
             if not os.path.exists(path):
-                self.lbl_image.setText("File not found")
+                self.lbl_image.setText("文件未找到")
                 return
 
             # [Safety] Prevent freezing on large files
             if os.path.getsize(path) > MAX_FILE_LOAD_BYTES:
-                self.lbl_image.setText("File too large")
+                self.lbl_image.setText("文件太大")
                 return
 
             # [Fix] Read file to memory first to release file handle immediately
@@ -300,12 +300,12 @@ class SmartMediaWidget(QWidget):
                 self._original_pixmap = QPixmap.fromImage(img)
                 self._perform_resize()
             else:
-                self.lbl_image.setText("Load Failed")
+                self.lbl_image.setText("加载失败")
                 
             buffer.close()
         except Exception as e:
             logging.warning(f"Sync load error: {e}")
-            self.lbl_image.setText("Load Error")
+            self.lbl_image.setText("加载错误")
 
     def _on_image_loaded(self, path, image):
         if path == self.current_path and not self.is_video:
@@ -314,7 +314,7 @@ class SmartMediaWidget(QWidget):
                 self.lbl_image.setText("")
                 self._perform_resize()
             else:
-                self.lbl_image.setText("Load Failed")
+                self.lbl_image.setText("加载失败")
 
     def resizeEvent(self, event):
         if not self.is_video and self._original_pixmap:
@@ -428,7 +428,7 @@ class SmartMediaWidget(QWidget):
 class FileCollisionDialog(QDialog):
     def __init__(self, filename, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("File Exists")
+        self.setWindowTitle("文件已存在")
         # [Memory] Auto-delete off for safety
         self.resize(400, 150)
         self.result_value = "cancel"
@@ -439,7 +439,7 @@ class FileCollisionDialog(QDialog):
         msg_layout = QHBoxLayout(msg_container)
         icon_label = QLabel("⚠️")
         icon_label.setObjectName("FileCollisionIcon")
-        text_label = QLabel(f"The file <b>'{filename}'</b> already exists.\nWhat would you like to do?")
+        text_label = QLabel(f"文件 <b>'{filename}'</b> 已存在。\n您想要做什么？")
         text_label.setWordWrap(True)
         msg_layout.addWidget(icon_label)
         msg_layout.addWidget(text_label, 1)
@@ -447,15 +447,15 @@ class FileCollisionDialog(QDialog):
         
         btn_layout = QHBoxLayout()
         
-        btn_overwrite = QPushButton("Overwrite")
-        btn_overwrite.setToolTip("Replace the existing file.")
+        btn_overwrite = QPushButton("覆盖")
+        btn_overwrite.setToolTip("替换现有文件。")
         btn_overwrite.clicked.connect(lambda: self.done_val("overwrite"))
         
-        btn_rename = QPushButton("Rename (Keep Both)")
-        btn_rename.setToolTip("Save as a new file with timestamp.")
+        btn_rename = QPushButton("重命名（保留两者）")
+        btn_rename.setToolTip("保存为新文件（带时间戳）。")
         btn_rename.clicked.connect(lambda: self.done_val("rename"))
         
-        btn_cancel = QPushButton("Cancel")
+        btn_cancel = QPushButton("取消")
         btn_cancel.clicked.connect(lambda: self.done_val("cancel"))
         
         btn_layout.addWidget(btn_overwrite)
@@ -472,19 +472,19 @@ class FileCollisionDialog(QDialog):
 class OverwriteConfirmDialog(QDialog):
     def __init__(self, filename, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Overwrite Confirmation")
+        self.setWindowTitle("覆盖确认")
         # [Memory] Auto-delete on close
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.result_value = "cancel"
         layout = QVBoxLayout(self)
-        msg = QLabel(f"Data for <b>'{filename}'</b> already exists.<br>Do you want to overwrite it?")
+        msg = QLabel(f"<b>'{filename}'</b> 的数据已存在。<br>您想要覆盖它吗？")
         msg.setWordWrap(True)
         layout.addWidget(msg)
         btn_layout = QGridLayout()
-        btn_yes = QPushButton("Yes")
-        btn_no = QPushButton("No")
-        btn_yes_all = QPushButton("Yes to All")
-        btn_no_all = QPushButton("No to All")
+        btn_yes = QPushButton("是")
+        btn_no = QPushButton("否")
+        btn_yes_all = QPushButton("全部是")
+        btn_no_all = QPushButton("全部否")
         btn_yes.clicked.connect(lambda: self.done_val("yes"))
         btn_no.clicked.connect(lambda: self.done_val("no"))
         btn_yes_all.clicked.connect(lambda: self.done_val("yes_all"))
@@ -501,19 +501,19 @@ class OverwriteConfirmDialog(QDialog):
 class DownloadDialog(QDialog):
     def __init__(self, default_path, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Download Model")
+        self.setWindowTitle("下载模型")
         # [Memory] Auto-delete off for safety
         self.resize(550, 180)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Civitai / HuggingFace URL:"))
         self.entry_url = QLineEdit()
-        self.entry_url.setPlaceholderText("Paste URL here (Ctrl+V)...")
+        self.entry_url.setPlaceholderText("在此粘贴URL (Ctrl+V)...")
         layout.addWidget(self.entry_url)
-        layout.addWidget(QLabel("Save Location:"))
+        layout.addWidget(QLabel("保存位置:"))
         path_layout = QHBoxLayout()
         self.entry_path = QLineEdit(default_path)
-        self.entry_path.setPlaceholderText("Type path or select folder...")
-        btn_browse = QPushButton("📂 Change")
+        self.entry_path.setPlaceholderText("输入路径或选择文件夹...")
+        btn_browse = QPushButton("📂 更改")
         btn_browse.clicked.connect(self.browse_folder)
         path_layout.addWidget(self.entry_path)
         path_layout.addWidget(btn_browse)
@@ -521,14 +521,14 @@ class DownloadDialog(QDialog):
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
-        btn_box.button(QDialogButtonBox.Ok).setText("Download")
+        btn_box.button(QDialogButtonBox.Ok).setText("下载")
         layout.addWidget(btn_box)
         
         self.result_data = None
 
     def browse_folder(self):
         current = self.entry_path.text()
-        folder = QFileDialog.getExistingDirectory(self, "Select Download Folder", current)
+        folder = QFileDialog.getExistingDirectory(self, "选择下载文件夹", current)
         if folder:
             self.entry_path.setText(folder)
 
@@ -542,7 +542,7 @@ class DownloadDialog(QDialog):
 class LinkInsertDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Insert Link")
+        self.setWindowTitle("插入链接")
         self.resize(400, 150)
         layout = QVBoxLayout(self)
         
@@ -550,10 +550,10 @@ class LinkInsertDialog(QDialog):
         self.entry_url = QLineEdit()
         self.entry_url.setPlaceholderText("https://...")
         self.entry_text = QLineEdit()
-        self.entry_text.setPlaceholderText("Display Text (Optional)")
+        self.entry_text.setPlaceholderText("显示文本（可选）")
         
         form.addRow("URL:", self.entry_url)
-        form.addRow("Text:", self.entry_text)
+        form.addRow("文本:", self.entry_text)
         layout.addLayout(form)
         
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -585,14 +585,14 @@ class TaskMonitorWidget(QWidget):
         # header_widget.setStyleSheet(...) -> Moved to QSS 
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(5, 0, 5, 0)
-        self.lbl_title = QLabel("Queue & History")
+        self.lbl_title = QLabel("队列与历史")
         self.lbl_title.setObjectName("task_title")
         # self.lbl_title.setStyleSheet(...) -> Moved to QSS
         
         # [수정] 버튼 스타일 개선 (글자색 흰색)
-        self.btn_clear = QPushButton("Clear Done")
+        self.btn_clear = QPushButton("清除已完成")
         self.btn_clear.setObjectName("task_clear_btn")
-        self.btn_clear.setToolTip("Remove completed tasks from the list")
+        self.btn_clear.setToolTip("从列表中移除已完成的任务")
         self.btn_clear.clicked.connect(self.clear_finished_tasks) 
         self.btn_clear.setFixedWidth(80)
         self.btn_clear.setFixedHeight(22)
@@ -605,7 +605,7 @@ class TaskMonitorWidget(QWidget):
         
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Task", "File / Info", "Status", "%"])
+        self.table.setHorizontalHeaderLabels(["任务", "文件/信息", "状态", "%"])
         
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
         self.table.setColumnWidth(0, 80) 
@@ -624,7 +624,7 @@ class TaskMonitorWidget(QWidget):
         self.row_map = {} 
         self.table.setVisible(True)
 
-    def add_row(self, key, task_type, detail_text, status="Pending"):
+    def add_row(self, key, task_type, detail_text, status="等待中"):
         if key in self.row_map:
             row = self.row_map[key]
             self.table.item(row, 0).setText(task_type)
@@ -670,7 +670,7 @@ class TaskMonitorWidget(QWidget):
             
             item_file = QTableWidgetItem(filename if filename else path)
             item_file.setToolTip(path)
-            item_status = QTableWidgetItem("Pending")
+            item_status = QTableWidgetItem("等待中")
             item_status.setTextAlignment(Qt.AlignCenter)
             item_prog = QTableWidgetItem("0")
             item_prog.setTextAlignment(Qt.AlignCenter)
@@ -732,12 +732,12 @@ class TaskMonitorWidget(QWidget):
     def log_message(self, message):
         """Adds a simple log message to the monitor."""
         key = f"log_{self.table.rowCount()}"
-        self.add_row(key, "Info", message, "Done")
+        self.add_row(key, "Info", message, "完成")
 
 class FolderDialog(QDialog):
     def __init__(self, parent=None, path="", mode="model", model_type="checkpoints", comfy_root=""):
         super().__init__(parent)
-        self.setWindowTitle("Folder Settings")
+        self.setWindowTitle("Folder 设置")
         # [Memory] Auto-delete on close
         self.resize(500, 250)
         
@@ -748,15 +748,15 @@ class FolderDialog(QDialog):
         path_box = QHBoxLayout()
         path_box.addWidget(self.edit_path)
         btn_browse = QPushButton("📂")
-        btn_browse.setToolTip("Browse Folder")
+        btn_browse.setToolTip("浏览文件夹")
         btn_browse.clicked.connect(self.browse)
         path_box.addWidget(btn_browse)
-        form.addRow("Path:", path_box)
+        form.addRow("路径:", path_box)
         
         # [Feature] ComfyUI Root Override
-        self.lbl_comfy_root = QLabel("ComfyUI Root:")
+        self.lbl_comfy_root = QLabel("ComfyUI根目录:")
         self.edit_comfy_root = QLineEdit(comfy_root)
-        self.edit_comfy_root.setPlaceholderText("Optional: Root path for ComfyUI (full absolute path)")
+        self.edit_comfy_root.setPlaceholderText("可选：ComfyUI的根路径（完整绝对路径）")
         self.edit_comfy_root.setToolTip("If set, 'Copy Node' will use this path as the base for relative path calculation.\nUseful if your manager folders are different from ComfyUI's model roots.")
         
         cpath_box = QHBoxLayout()
@@ -770,9 +770,9 @@ class FolderDialog(QDialog):
         self.combo_mode = QComboBox()
         self.combo_mode.addItems(["model", "gallery", "workflow", "prompt"])
         self.combo_mode.setCurrentText(mode)
-        form.addRow("Mode:", self.combo_mode)
+        form.addRow("模式:", self.combo_mode)
 
-        # [Feature] Model Type Selector
+        # [Feature] 模型 类型 Selector
         self.combo_type = QComboBox()
         self.model_types = [
             "checkpoints", "loras", "vae", "controlnet", 
@@ -781,10 +781,10 @@ class FolderDialog(QDialog):
         self.combo_type.addItems(self.model_types)
         self.combo_type.setCurrentText(model_type if model_type in self.model_types else "checkpoints")
         
-        self.lbl_type = QLabel("Model Type:")
+        self.lbl_type = QLabel("模型 类型:")
         form.addRow(self.lbl_type, self.combo_type)
         
-        # Logic: Show Model Type only when Mode is 'model'
+        # Logic: Show 模型 类型 only when 模式 is 'model'
         self.combo_mode.currentTextChanged.connect(self._on_mode_changed)
         self._on_mode_changed(mode)
         
@@ -802,7 +802,7 @@ class FolderDialog(QDialog):
         self.lbl_type.setVisible(is_model)
         self.combo_type.setVisible(is_model)
         
-        # Toggle Comfy Root visibility (Label + Input + Button)
+        # Toggle ComfyUI根目录 visibility (Label + Input + Button)
         self.lbl_comfy_root.setVisible(is_model)
         self.edit_comfy_root.setVisible(is_model)
         self.btn_browse_root.setVisible(is_model)
@@ -832,43 +832,43 @@ class FolderDialog(QDialog):
 class SettingsDialog(QDialog):
     def __init__(self, parent=None, settings=None, directories=None):
         super().__init__(parent)
-        self.setWindowTitle("Settings")
+        self.setWindowTitle("设置")
         # [Memory] Auto-delete on close
         self.resize(700, 600)
         self.settings = settings or {}
         self.directories = directories or {}
         layout = QVBoxLayout(self)
         
-        # General Settings Group
-        grp_gen = QGroupBox("General")
+        # 通用设置组
+        grp_gen = QGroupBox("通用")
         form_layout = QFormLayout(grp_gen)
         self.entry_civitai_key = QLineEdit(self.settings.get("civitai_api_key", ""))
-        self.entry_civitai_key.setPlaceholderText("Paste your Civitai API Key here")
-        form_layout.addRow("Civitai API Key:", self.entry_civitai_key)
+        self.entry_civitai_key.setPlaceholderText("在此粘贴您的Civitai API密钥")
+        form_layout.addRow("Civitai API密钥:", self.entry_civitai_key)
         self.entry_hf_key = QLineEdit(self.settings.get("hf_api_key", ""))
-        self.entry_hf_key.setPlaceholderText("Paste your Hugging Face Token here (Optional)")
-        form_layout.addRow("Hugging Face Token:", self.entry_hf_key)
+        self.entry_hf_key.setPlaceholderText("在此粘贴您的Hugging Face令牌（可选）")
+        form_layout.addRow("Hugging Face令牌:", self.entry_hf_key)
         self.entry_cache = QLineEdit(self.settings.get("cache_path", ""))
-        self.entry_cache.setPlaceholderText("Default: ./cache (Leave empty for default)")
+        self.entry_cache.setPlaceholderText("默认: ./cache（留空使用默认）")
         btn_browse_cache = QPushButton("📂")
-        btn_browse_cache.setToolTip("Browse Cache Folder")
+        btn_browse_cache.setToolTip("浏览缓存文件夹")
         btn_browse_cache.setFixedWidth(40)
         btn_browse_cache.clicked.connect(self.browse_cache_folder)
         cache_layout = QHBoxLayout()
         cache_layout.addWidget(self.entry_cache)
         cache_layout.addWidget(btn_browse_cache)
-        form_layout.addRow("Cache Folder:", cache_layout)
+        form_layout.addRow("缓存文件夹:", cache_layout)
         layout.addWidget(grp_gen)
         
 
         
-        # Directory Settings Group
-        grp_dir = QGroupBox("Registered Folders")
+        # 目录设置组
+        grp_dir = QGroupBox("已注册文件夹")
         dir_layout = QVBoxLayout(grp_dir)
         
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Name", "Mode", "Type", "Path"])
+        self.table.setHorizontalHeaderLabels(["名称", "模式", "类型", "路径"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -878,12 +878,12 @@ class SettingsDialog(QDialog):
         dir_layout.addWidget(self.table)
         
         btn_layout = QHBoxLayout()
-        self.btn_add = QPushButton("➕ Add Folder")
-        self.btn_add.setToolTip("Register a new folder to manage")
-        self.btn_edit = QPushButton("✏️ Edit Selected")
-        self.btn_edit.setToolTip("Edit the path or mode of the selected folder")
-        self.btn_del = QPushButton("➖ Remove Selected")
-        self.btn_del.setToolTip("Unregister the selected folder")
+        self.btn_add = QPushButton("➕ 添加文件夹")
+        self.btn_add.setToolTip("注册新文件夹进行管理")
+        self.btn_edit = QPushButton("✏️ 编辑选中")
+        self.btn_edit.setToolTip("编辑选中文件夹的路径或模式")
+        self.btn_del = QPushButton("➖ 移除选中")
+        self.btn_del.setToolTip("取消注册选中的文件夹")
         self.btn_add.clicked.connect(self.add_folder)
         self.btn_edit.clicked.connect(self.edit_folder)
         self.btn_del.clicked.connect(self.remove_folder)
@@ -896,8 +896,8 @@ class SettingsDialog(QDialog):
         
         # Bottom Buttons
         action_layout = QHBoxLayout()
-        self.btn_save = QPushButton("💾 Save & Close")
-        self.btn_save.setToolTip("Save changes and close settings")
+        self.btn_save = QPushButton("💾 保存并关闭")
+        self.btn_save.setToolTip("保存更改并关闭设置")
         self.btn_save.clicked.connect(self.accept)
         action_layout.addStretch()
         action_layout.addWidget(self.btn_save)
@@ -907,10 +907,10 @@ class SettingsDialog(QDialog):
 
     def refresh_table(self):
         self.table.setRowCount(0)
-        # [Update] Added Comfy Root Column
+        # [Update] Added ComfyUI根目录 Column
         if self.table.columnCount() < 5:
              self.table.setColumnCount(5)
-             self.table.setHorizontalHeaderLabels(["Name", "Mode", "Type", "Path", "Comfy Root"])
+             self.table.setHorizontalHeaderLabels(["名称", "模式", "类型", "路径", "ComfyUI根目录"])
              self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
              
         for alias, data in self.directories.items():
@@ -1034,14 +1034,14 @@ class MarkdownNoteWidget(QWidget):
         # Stacked Widget to switch between View and Edit modes
         self.stack = QStackedWidget()
         
-        # --- View Mode ---
+        # --- View 模式 ---
         self.view_widget = QWidget()
         view_layout = QVBoxLayout(self.view_widget)
         view_layout.setContentsMargins(0,0,0,0)
         
         top_bar = QHBoxLayout()
-        self.btn_edit = QPushButton("✏️ Edit")
-        self.btn_edit.setToolTip("Edit Note")
+        self.btn_edit = QPushButton("✏️ 编辑")
+        self.btn_edit.setToolTip("编辑笔记")
         self.btn_edit.clicked.connect(self.switch_to_edit)
         top_bar.addStretch()
         top_bar.addWidget(self.btn_edit)
@@ -1051,7 +1051,7 @@ class MarkdownNoteWidget(QWidget):
         self.browser.setOpenExternalLinks(True)
         view_layout.addWidget(self.browser)
         
-        # --- Edit Mode ---
+        # --- Edit 模式 ---
         self.edit_widget = QWidget()
         edit_layout = QVBoxLayout(self.edit_widget)
         edit_layout.setContentsMargins(0,0,0,0)
@@ -1059,12 +1059,12 @@ class MarkdownNoteWidget(QWidget):
         self.media_handler = None
         
         toolbar = QHBoxLayout()
-        btn_img = QPushButton("🖼️ Image")
-        btn_img.setToolTip("Insert Image")
+        btn_img = QPushButton("🖼️ 图片")
+        btn_img.setToolTip("插入图片")
         btn_img.clicked.connect(lambda: self.insert_media("image"))
         
-        btn_link = QPushButton("🔗 Link")
-        btn_link.setToolTip("Insert Link")
+        btn_link = QPushButton("🔗 链接")
+        btn_link.setToolTip("插入链接")
         btn_link.clicked.connect(lambda: self.insert_media("link"))
         
         for b in [btn_img, btn_link]:
@@ -1073,11 +1073,11 @@ class MarkdownNoteWidget(QWidget):
         
         toolbar.addStretch()
         
-        self.btn_save = QPushButton("💾 Save")
-        self.btn_save.setToolTip("Save Note")
+        self.btn_save = QPushButton("💾 保存")
+        self.btn_save.setToolTip("保存笔记")
         self.btn_save.clicked.connect(self.request_save)
-        self.btn_cancel = QPushButton("❌ Cancel")
-        self.btn_cancel.setToolTip("Cancel Editing")
+        self.btn_cancel = QPushButton("❌ 取消")
+        self.btn_cancel.setToolTip("取消编辑")
         self.btn_cancel.clicked.connect(self.switch_to_view)
         
         toolbar.addWidget(self.btn_save)
@@ -1133,7 +1133,7 @@ class MarkdownNoteWidget(QWidget):
             
         cursor = self.editor.textCursor()
         if mtype == "image":
-            file_path, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Images (*.png *.jpg *.jpeg *.webp *.gif)")
+            file_path, _ = QFileDialog.getOpenFile名称(self, "Select Image", "", "Images (*.png *.jpg *.jpeg *.webp *.gif)")
             if file_path:
                 file_path = file_path.replace("\\", "/") 
                 name = os.path.basename(file_path)
@@ -1153,7 +1153,7 @@ class MarkdownNoteWidget(QWidget):
 class ZoomWindow(QDialog):
     def __init__(self, image_path, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Zoom")
+        self.setWindowTitle("缩放")
         self.setModal(True)
         # [Memory Fix] Ensure widget is destroyed on close
         self.setAttribute(Qt.WA_DeleteOnClose)

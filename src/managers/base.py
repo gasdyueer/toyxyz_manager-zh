@@ -108,8 +108,8 @@ class BaseManagerWidget(QWidget):
             if not silent:
                 self.show_status_message("Note saved (.md).")
         except Exception as e: 
-            logging.error(f"Save Error: {e}")
-            self.show_status_message(f"Save Failed: {e}")
+            logging.error(f"Save 错误: {e}")
+            self.show_status_message(f"Save 失败: {e}")
 
     def _init_base_ui(self):
         main_layout = QVBoxLayout(self)
@@ -133,15 +133,15 @@ class BaseManagerWidget(QWidget):
         # [Search UI]
         search_layout = QHBoxLayout()
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("🔍 Search... (Enter)")
+        self.filter_edit.setPlaceholderText("🔍 搜索")
         self.filter_edit.returnPressed.connect(self.search_files)
         
-        self.btn_search = QPushButton("Search")
-        self.btn_search.setToolTip("Search files in the current directory (Recursive)")
+        self.btn_search = QPushButton("搜索")
+        self.btn_search.setToolTip("在当前目录中递归搜索文件")
         self.btn_search.clicked.connect(self.search_files)
         
-        self.btn_search_back = QPushButton("⬅️ Back")
-        self.btn_search_back.setToolTip("Return to full list (Clear search)")
+        self.btn_search_back = QPushButton("⬅️ 返回")
+        self.btn_search_back.setToolTip("返回完整列表（清除搜索）")
         self.btn_search_back.setEnabled(False) # Default hidden/disabled
         self.btn_search_back.clicked.connect(self.cancel_search)
         
@@ -150,7 +150,7 @@ class BaseManagerWidget(QWidget):
         search_layout.addWidget(self.btn_search_back)
         
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Name", "Size", "Date", "Format"])
+        self.tree.setHeaderLabels(["名称", "大小", "日期", "格式"])
         self.tree.setColumnWidth(0, 200) 
         self.tree.setColumnWidth(1, 70)  
         self.tree.setColumnWidth(2, 110) 
@@ -158,7 +158,7 @@ class BaseManagerWidget(QWidget):
         # self.tree.setStyleSheet(...) -> Moved to QSS
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setSortingEnabled(True) # [Fix] Enable Sorting
-        self.tree.sortByColumn(0, Qt.AscendingOrder) # Default sort by Name
+        self.tree.sortByColumn(0, Qt.AscendingOrder) # Default sort by 名称
         self.tree.itemSelectionChanged.connect(self.on_tree_select)
         self.tree.itemExpanded.connect(self.on_tree_expand)
         
@@ -194,11 +194,11 @@ class BaseManagerWidget(QWidget):
     def on_tree_select(self): pass
     
     def _setup_info_panel(self, extra_fields: list = None):
-        """Helper to create standard info panel (Name, Size, Path, Date + Extras)."""
+        """Helper to create standard info panel (名称, Size, 路径, Date + Extras)."""
         extra_fields = extra_fields or []
-        # Standard fields: Name is always first. Size, Path, Date are always last.
+        # Standard fields: 名称 is always first. Size, 路径, Date are always last.
         # Extras inserted in between.
-        target_fields = ["Name"] + extra_fields + ["Size", "Path", "Date"]
+        target_fields = ["名称"] + extra_fields + ["大小", "路径", "日期"]
         
         self.info_labels = {}
         form_layout = QFormLayout()
@@ -498,7 +498,7 @@ class BaseManagerWidget(QWidget):
         
         # Loading Indicator
         loading = QTreeWidgetItem(self.tree)
-        loading.setText(0, "Searching...")
+        loading.setText(0, "搜索中...")
         
         self.filter_edit.setEnabled(False)
         self.btn_search.setEnabled(False)
@@ -569,7 +569,7 @@ class BaseManagerWidget(QWidget):
         if hasattr(self, 'parent_window') and self.parent_window:
             self.parent_window.statusBar().showMessage(msg, duration)
         else:
-            logging.info(f"[Status] {msg}")
+            logging.info(f"[状态] {msg}")
 
     def get_cache_dir(self):
         # Allow app_settings to define cache path, or fallback to default
@@ -645,7 +645,7 @@ class BaseManagerWidget(QWidget):
              # Refresh details - assumes subclasses implement _load_details
              if hasattr(self, '_load_details'): self._load_details(self.current_path)
         else:
-             QMessageBox.warning(self, "Error", f"Failed: {msg}")
+             QMessageBox.warning(self, "错误", f"失败: {msg}")
 
     def on_preview_click(self):
         if not hasattr(self, 'preview_lbl'): return
@@ -700,7 +700,7 @@ class BaseManagerWidget(QWidget):
 
     def handle_media_insert(self, mtype):
         if not self.current_path: 
-            QMessageBox.warning(self, "Error", "No item selected.")
+            QMessageBox.warning(self, "错误", "No item selected.")
             return None
             
         if mtype not in ["image", "video"]: return None
@@ -742,7 +742,7 @@ class BaseManagerWidget(QWidget):
             else:
                 return f"![{name}]({dest_path_fwd})"
         except Exception as e:
-            self.show_status_message(f"Failed to copy media: {e}")
+            self.show_status_message(f"失败 to copy media: {e}")
             return None
 
     def closeEvent(self, event):
@@ -840,9 +840,9 @@ class BaseManagerWidget(QWidget):
         for w in workers:
             try:
                 if w.isRunning():
-                    logging.debug(f"[StopAllWorkers] Waiting for {w.objectName() if w.objectName() else 'Worker'}...")
+                    logging.debug(f"[StopAllWorkers] Waiting for {w.object名称() if w.object名称() else 'Worker'}...")
                     w.wait(1000) # 1 sec each
-                    logging.debug(f"[StopAllWorkers] {w.objectName() if w.objectName() else 'Worker'} finished.")
+                    logging.debug(f"[StopAllWorkers] {w.object名称() if w.object名称() else 'Worker'} finished.")
             except RuntimeError: pass
 
         # 2. Wait for Thumbnail workers
@@ -857,7 +857,7 @@ class BaseManagerWidget(QWidget):
         for w in heavy_workers:
             try:
                 if w.isRunning():
-                    name = w.objectName() if w.objectName() else str(w)
+                    name = w.object名称() if w.object名称() else str(w)
                     logging.debug(f"[StopAllWorkers] Waiting for {name} (3s timeout)...")
                     # Give it ample time (e.g. 3s)
                     if not w.wait(3000):
@@ -915,9 +915,9 @@ class BaseManagerWidget(QWidget):
             size_str = self.format_size(st.st_size)
             date_str = self.format_date(st.st_mtime, seconds=True)
         except (OSError, ValueError) as e:
-            logging.error(f"Failed to stat file {path}: {e}")
-            size_str = "Error"
-            date_str = "Error"
+            logging.error(f"失败 to stat file {path}: {e}")
+            size_str = "错误"
+            date_str = "错误"
             
         # Duplicate Check
         if self.get_mode() != "gallery" and hasattr(self, 'file_map') and self.lbl_duplicate_warning:

@@ -130,7 +130,7 @@ class PromptListItemWidget(QWidget):
         pos_row.addWidget(btn_copy_pos)
         
         self.txt_pos = PromptTextEdit(positive, bg_color="#f9f9f9", border_color="#ddd")
-        self.txt_pos.setPlaceholderText("Positive Prompt...") # Placeholder for empty
+        self.txt_pos.setPlaceholderText("正面提示词...") # Placeholder for empty
         self.txt_pos.setObjectName("PromptItemPositive")
         self.txt_pos.clicked.connect(self._propagate_click)
         pos_row.addWidget(self.txt_pos, 1) 
@@ -151,7 +151,7 @@ class PromptListItemWidget(QWidget):
         neg_row.addWidget(btn_copy_neg)
         
         self.txt_neg = PromptTextEdit(negative, bg_color="#fff5f5", border_color="#eec")
-        self.txt_neg.setPlaceholderText("Negative Prompt...") # Placeholder for empty
+        self.txt_neg.setPlaceholderText("负面提示词...") # Placeholder for empty
         self.txt_neg.setObjectName("PromptItemNegative")
         self.txt_neg.clicked.connect(self._propagate_click)
         neg_row.addWidget(self.txt_neg, 1) 
@@ -271,7 +271,7 @@ class PromptEditDialog(QDialog):
         layout = QVBoxLayout(self)
         
         # Positive
-        layout.addWidget(QLabel("Positive Prompt:"))
+        layout.addWidget(QLabel("正面提示词:"))
         self.txt_positive = QTextEdit()
         self.txt_positive.setPlainText(positive)
         self.txt_positive.setPlainText(positive)
@@ -280,7 +280,7 @@ class PromptEditDialog(QDialog):
         layout.addWidget(self.txt_positive)
         
         # Negative
-        layout.addWidget(QLabel("Negative Prompt:"))
+        layout.addWidget(QLabel("负面提示词:"))
         self.txt_negative = QTextEdit()
         self.txt_negative.setPlainText(negative)
         self.txt_negative.setPlainText(negative)
@@ -350,7 +350,7 @@ class PromptManagerWidget(BaseManagerWidget):
         self.btn_add_item.setToolTip("Add a new prompt item")
         self.btn_add_item.clicked.connect(self.add_prompt_item)
         
-        self.btn_edit_item = QPushButton("✏️ Edit")
+        self.btn_edit_item = QPushButton("✏️ 编辑")
         self.btn_edit_item.setToolTip("Edit selected prompt text")
         self.btn_edit_item.clicked.connect(self.edit_prompt_item)
 
@@ -377,7 +377,7 @@ class PromptManagerWidget(BaseManagerWidget):
         self.center_layout.addLayout(btn_layout)
 
     def eventFilter(self, obj, event):
-        if obj == self.prompt_list and event.type() == event.Type.Resize:
+        if obj == self.prompt_list and event.type() == event.类型.Resize:
             self._adjust_list_items()
         
         return super().eventFilter(obj, event)
@@ -436,14 +436,14 @@ class PromptManagerWidget(BaseManagerWidget):
         if target_path and os.path.exists(target_path):
             os.startfile(target_path)
         else:
-            QMessageBox.warning(self, "Error", "No valid folder or file selected.")
+            QMessageBox.warning(self, "错误", "No valid folder or file selected.")
 
     def init_right_panel(self):
-        # Tabs for Detail/Note and Example
+        # Tabs for 详情/Note and Example
         from PySide6.QtWidgets import QTabWidget
         self.right_tabs = QTabWidget()
         
-        # Tab 1: Note (JSON Detail)
+        # Tab 1: Note (JSON 详情)
         self.tab_note = MarkdownNoteWidget()
         self.tab_note.save_requested.connect(self.save_prompt_note)
         self.tab_note.set_media_handler(self.handle_media_insert) # Base class method? No, need to implement or remove
@@ -459,14 +459,14 @@ class PromptManagerWidget(BaseManagerWidget):
         
     def handle_media_insert(self, mtype):
         if self.current_prompt_index < 0 or not self.current_json_path:
-            QMessageBox.warning(self, "Error", "No prompt item selected.")
+            QMessageBox.warning(self, "错误", "No prompt item selected.")
             return None
             
         if mtype not in ["image", "video"]: return None
         
         # Select File
         filters = "Media (*.png *.jpg *.jpeg *.webp *.mp4 *.webm *.gif)"
-        file_path, _ = QFileDialog.getOpenFileName(self, f"Select {mtype.title()}", "", filters)
+        file_path, _ = QFileDialog.getOpenFile名称(self, f"Select {mtype.title()}", "", filters)
         if not file_path: return None
         
         # Calculate target relative path: <json_stem>/<UUID>/assets
@@ -475,7 +475,7 @@ class PromptManagerWidget(BaseManagerWidget):
         # Get Item Data
         item_data = self.current_prompt_data[self.current_prompt_index]
         if "id" not in item_data:
-             QMessageBox.warning(self, "Error", "Prompt item has no ID. Please select it again to generate one.")
+             QMessageBox.warning(self, "错误", "Prompt item has no ID. Please select it again to generate one.")
              return None
              
         # Using UUID as folder name
@@ -575,9 +575,9 @@ class PromptManagerWidget(BaseManagerWidget):
             self.show_status_message(f"Loaded: {os.path.basename(path)} ({self.format_size(size)})")
             
         except Exception as e:
-            logging.error(f"Error loading prompt JSON: {e}")
-            self.prompt_list.addItem(f"Error loading file: {e}")
-            self.show_status_message(f"Error loading file: {e}")
+            logging.error(f"错误 loading prompt JSON: {e}")
+            self.prompt_list.addItem(f"错误 loading file: {e}")
+            self.show_status_message(f"错误 loading file: {e}")
 
     def on_prompt_selected(self):
         selected_items = self.prompt_list.selectedItems()
@@ -643,11 +643,11 @@ class PromptManagerWidget(BaseManagerWidget):
                 first_key = next(iter(self.directories))
                 target_dir = self.directories[first_key].get("path")
             else:
-                QMessageBox.warning(self, "Error", "No directories registered.")
+                QMessageBox.warning(self, "错误", "No directories registered.")
                 return
 
         if not target_dir or not os.path.exists(target_dir):
-            QMessageBox.warning(self, "Error", f"Invalid target directory: {target_dir}")
+            QMessageBox.warning(self, "错误", f"Invalid target directory: {target_dir}")
             return
 
         # Get Filename
@@ -661,7 +661,7 @@ class PromptManagerWidget(BaseManagerWidget):
         full_path = os.path.join(target_dir, filename)
         
         if os.path.exists(full_path):
-            QMessageBox.warning(self, "Error", "File already exists.")
+            QMessageBox.warning(self, "错误", "File already exists.")
             return
             
         # Create empty JSON list
@@ -677,11 +677,11 @@ class PromptManagerWidget(BaseManagerWidget):
             # Ideally we just refresh.
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to create file: {e}")
+            QMessageBox.critical(self, "错误", f"失败 to create file: {e}")
 
     def add_prompt_item(self):
         if not self.current_json_path:
-            QMessageBox.warning(self, "Error", "No prompt file selected.")
+            QMessageBox.warning(self, "错误", "No prompt file selected.")
             return
 
         # Default new item with UUID
@@ -768,8 +768,8 @@ class PromptManagerWidget(BaseManagerWidget):
                      logging.info(f"Deleted resource folder for prompt {item_id}")
             
         except OSError as e:
-            logging.error(f"Failed to cleanup folder: {e}")
-            QMessageBox.warning(self, "Warning", f"Failed to delete resource folder:\\n{e}")
+            logging.error(f"失败 to cleanup folder: {e}")
+            QMessageBox.warning(self, "Warning", f"失败 to delete resource folder:\\n{e}")
 
         # Delete from list
         del self.current_prompt_data[self.current_prompt_index]
@@ -782,7 +782,7 @@ class PromptManagerWidget(BaseManagerWidget):
             with open(self.current_json_path, 'w', encoding='utf-8') as f:
                 json.dump(self.current_prompt_data, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save JSON: {e}")
+            QMessageBox.critical(self, "错误", f"失败 to save JSON: {e}")
 
     def refresh_current_file(self):
         if self.current_json_path:
@@ -835,7 +835,7 @@ class PromptManagerWidget(BaseManagerWidget):
                 json.dump(self.current_prompt_data, f, indent=2, ensure_ascii=False)
             self.show_status_message("Prompt note saved.")
         except Exception as e:
-            logging.error(f"Failed to save prompt json: {e}")
+            logging.error(f"失败 to save prompt json: {e}")
             self.show_status_message(f"Save failed: {e}")
 
 

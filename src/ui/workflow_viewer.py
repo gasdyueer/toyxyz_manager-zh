@@ -183,7 +183,7 @@ class WorkflowNodeItem(QGraphicsItem):
         props = data.get("properties", {})
         if "Node name for S&R" in props: return props["Node name for S&R"]
         
-        # 4. Type / Class Type
+        # 4. 类型 / Class 类型
         # These might be human readable OR UUIDs (for Group Nodes)
         candidate = data.get("type") or data.get("class_type")
         
@@ -270,7 +270,7 @@ class WorkflowNodeItem(QGraphicsItem):
             painter.setBrush(Qt.black)
             painter.drawEllipse(QPointF(0, socket_y), 3, 3)
             
-            # Name
+            # 名称
             painter.setPen(Qt.black)
             name_rect = QRectF(8, y, self.width/2, self.base_slot_height)
             painter.drawText(name_rect, Qt.AlignVCenter | Qt.AlignLeft, name)
@@ -362,7 +362,7 @@ class WorkflowGraphViewer(QGraphicsView):
         self.setScene(QGraphicsScene(self))
         self.setRenderHint(QPainter.Antialiasing)
         self.setDragMode(QGraphicsView.ScrollHandDrag)
-        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse) # Zoom center mouse
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse) # 缩放 center mouse
         self.setBackgroundBrush(Qt.white)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         
@@ -468,7 +468,7 @@ class WorkflowGraphViewer(QGraphicsView):
                      self._build_graph_api(json_data)
                      
         except Exception as e:
-            logging.error(f"Error loading graph: {e}")
+            logging.error(f"错误 loading graph: {e}")
 
     def _build_graph_standard(self, nodes, links, groups):
         # 1. Create Groups (Background)
@@ -620,7 +620,7 @@ class WorkflowGraphViewer(QGraphicsView):
         self.fitInView(rect, Qt.KeepAspectRatio)
 
     def wheelEvent(self, event):
-        # Smooth Zoom
+        # Smooth 缩放
         zoom_in = event.angleDelta().y() > 0
         factor = 1.15 if zoom_in else 1 / 1.15
         

@@ -105,7 +105,7 @@ class NetworkClient:
                     for chunk in r.iter_content(chunk_size=8192):
                         # [Safety] Check for external stop signal
                         if stop_callback and stop_callback():
-                             raise InterruptedError("Download interrupted by user")
+                             raise Interrupted错误("Download interrupted by user")
 
                         if chunk:
                             f.write(chunk)
@@ -117,7 +117,7 @@ class NetworkClient:
                 if os.path.exists(target_path):
                     try:
                         os.remove(target_path) # Overwrite intention?
-                    except OSError:
+                    except OS错误:
                         # [Fix] Create unique name if file is locked (e.g. video playing)
                         # OR just skip overwrite and use existing file?
                         # Skipping is better for cache efficiency.

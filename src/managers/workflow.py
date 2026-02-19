@@ -127,10 +127,10 @@ class WorkflowManagerWidget(BaseManagerWidget):
         # [Refactor] Use shared logic from BaseManagerWidget
         filename, size_str, date_str, preview_path = self._load_common_file_details(path)
         
-        self.info_labels["Name"].setText(filename)
-        self.info_labels["Size"].setText(size_str)
-        self.info_labels["Date"].setText(date_str)
-        self.info_labels["Path"].setText(path)
+        self.info_labels["名称"].setText(filename)
+        self.info_labels["大小"].setText(size_str)
+        self.info_labels["日期"].setText(date_str)
+        self.info_labels["路径"].setText(path)
         
         self.preview_lbl.set_media(preview_path)
         
@@ -148,7 +148,7 @@ class WorkflowManagerWidget(BaseManagerWidget):
                      except Exception as e:
                          self.graph_viewer.clear_graph()
         except Exception as e:
-            self.txt_raw.setText(f"Error reading file: {e}")
+            self.txt_raw.setText(f"错误 reading file: {e}")
 
         # Load Note (Standardized)
         self.load_content_data(path)
@@ -282,10 +282,10 @@ class WorkflowManagerWidget(BaseManagerWidget):
             msg = f"Workflow copied! ({len(nodes)} nodes, {len(links)} links) Paste in ComfyUI."
             self.show_status_message(msg, 3000)
             
-        except json.JSONDecodeError:
-             self.show_status_message("Error: Invalid JSON format.", 3000)
+        except json.JSONDecode错误:
+             self.show_status_message("错误: Invalid JSON format.", 3000)
         except Exception as e:
-            self.show_status_message(f"Error: {e}", 3000)
+            self.show_status_message(f"错误: {e}", 3000)
 
 
 class WorkflowDraggableMediaWidget(SmartMediaWidget):

@@ -89,7 +89,7 @@ def extract_novelai_data(img) -> Optional[Dict[str, Any]]:
             return None
         
     except Exception as e:
-        # print(f"NAI Extract Error: {e}")
+        # print(f"NAI Extract 错误: {e}")
         pass
         
     return None

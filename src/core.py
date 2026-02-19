@@ -40,7 +40,7 @@ except ImportError:
     pass
 
 # ==========================================
-# Constants & Paths
+# Constants & 路径s
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE = os.path.join(BASE_DIR, "manager_config.json")
@@ -51,7 +51,7 @@ EXT_MODEL = {".ckpt", ".pt", ".bin", ".safetensors", ".gguf", ".pth"}
 EXT_WORKFLOW = {".json"}
 EXT_PROMPT = {".txt", ".json"} 
 
-# Mode Mapping
+# 模式 Mapping
 SUPPORTED_EXTENSIONS = {
     "model": EXT_MODEL,
     "workflow": EXT_WORKFLOW,
@@ -86,8 +86,8 @@ def sanitize_filename(filename: str) -> str:
 def calculate_structure_path(model_path: str, cache_root: str, directories: Dict[str, Any], mode: str = "model") -> str:
     """
     Calculates the structured cache path.
-    New Strategy: Flat structure based on Mode and Filename.
-    Path: cache_root/<mode>/<model_name>
+    New Strategy: Flat structure based on 模式 and Filename.
+    路径: cache_root/<mode>/<model_name>
     Directories argument is kept for signature compatibility but not strictly needed for flat structure logic,
     unless we want to validate something.
     """
@@ -110,7 +110,7 @@ def load_config(config_path=CONFIG_FILE) -> Dict[str, Any]:
             with open(config_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except Exception as e:
-            logging.error(f"Failed to load config: {e}")
+            logging.error(f"失败 to load config: {e}")
             return {}
 
     settings = data.get("__settings__", {})
@@ -140,7 +140,7 @@ def save_config(data: Dict[str, Any], config_path=CONFIG_FILE):
         with open(config_path, "w", encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        logging.error(f"Failed to save config: {e}")
+        logging.error(f"失败 to save config: {e}")
         raise e
 
 # ==========================================

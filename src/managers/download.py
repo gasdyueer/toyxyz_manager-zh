@@ -3,12 +3,12 @@ import re
 from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtWidgets import QMessageBox
 
-from ..workers import ModelDownloadWorker
+from ..workers import 模型DownloadWorker
 from ..ui_components import FileCollisionDialog
 
 class DownloadController(QObject):
     """
-    Manages the download queue and ModelDownloadWorker.
+    Manages the download queue and 模型DownloadWorker.
     Emits signals for progress, completion, and queue status.
     """
     download_finished = Signal(str, str) # msg, file_path
@@ -26,13 +26,13 @@ class DownloadController(QObject):
         self._is_paused = False
 
     def add_download(self, url, target_dir):
-        display_name = "Unknown Model"
+        display_name = "Unknown 模型"
         match_slug = re.search(r'models/\d+/([^/?#]+)', url)
         match_id = re.search(r'models/(\d+)', url)
         if match_slug:
             display_name = match_slug.group(1)
         elif match_id:
-            display_name = f"Model {match_id.group(1)}"
+            display_name = f"模型 {match_id.group(1)}"
         
         detail_info = f"{display_name} / {os.path.basename(target_dir)}"
 
@@ -42,7 +42,7 @@ class DownloadController(QObject):
             'display_name': detail_info
         }
         self.download_queue.append(task)
-        self.task_monitor.add_row(url, "Download", detail_info, "Queued")
+        self.task_monitor.add_row(url, "Download", detail_info, "排队中")
         self.queue_updated.emit(len(self.download_queue))
         
         # Determine if we should start immediately
@@ -58,7 +58,7 @@ class DownloadController(QObject):
         task = self.download_queue.pop(0)
         self.queue_updated.emit(len(self.download_queue))
 
-        self.current_worker = ModelDownloadWorker(
+        self.current_worker = 模型DownloadWorker(
             task['url'], task['target_dir'], 
             api_key=self.app_settings.get("civitai_api_key"),
             task_key=task['url'] 
@@ -107,9 +107,9 @@ class DownloadController(QObject):
         self.task_monitor.update_task(key, status, percent)
 
     def _on_worker_finished(self, msg, file_path):
-        # Update Task Monitor to Done
+        # Update 任务 Monitor to 完成
         if self.current_worker:
-             self.task_monitor.update_task(self.current_worker.task_key, "Done", 100)
+             self.task_monitor.update_task(self.current_worker.task_key, "完成", 100)
         
         self.download_finished.emit(msg, file_path)
         # Note: We do NOT auto-call process_next here to allow owner to inject logic (e.g. metadata chain)
@@ -117,7 +117,7 @@ class DownloadController(QObject):
 
     def _on_worker_error(self, err_msg):
         if self.current_worker:
-             self.task_monitor.update_task(self.current_worker.task_key, "Error", 0)
+             self.task_monitor.update_task(self.current_worker.task_key, "错误", 0)
              
         self.download_error.emit(err_msg)
         # Similarly, pause or continue? Usually continue on error, but let owner decide?

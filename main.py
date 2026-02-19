@@ -5,7 +5,7 @@ import os
 # [Infra] Suppress verbose FFmpeg/Qt logs (Must be set before Qt imports)
 os.environ["QT_LOGGING_RULES"] = "qt.multimedia*=false;*.debug=false"
 os.environ["FFMPEG_LOG_LEVEL"] = "quiet"
-os.environ["FFREPORT"] = "level=16" # Level 16=Error, 24=Warning, 32=Info. We use 16 to suppress warnings.
+os.environ["FFREPORT"] = "level=16" # Level 16=错误, 24=Warning, 32=Info. We use 16 to suppress warnings.
 os.environ["OPENCV_LOG_LEVEL"] = "OFF"
 
 # [Infra] Setup Logging
@@ -58,9 +58,9 @@ if __name__ == "__main__":
 
     import traceback
 
-    # Debug Mode Extras (Crash Handler)
+    # Debug 模式 Extras (Crash Handler)
     if debug_mode:
-        logging.info("=== Application Started (Debug Mode) ===")
+        logging.info("=== Application Started (Debug 模式) ===")
         
         # Global Exception Hook
         def crash_handler(etype, value, tb):
