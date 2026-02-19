@@ -71,7 +71,7 @@ class MetadataController(QObject):
         # Enqueue or Run
         if self.worker and self.worker.isRunning():
             self.queue.append((mode, final_targets, manual_url, worker_overwrite))
-            self.status_message.emit(f"任务 queued. (Queue size: {len(self.queue)})", 3000)
+            self.status_message.emit(f"任务已加入队列. (队列大小: {len(self.queue)})", 3000)
         else:
             self._start_worker(mode, final_targets, manual_url, worker_overwrite)
 
@@ -111,10 +111,10 @@ class MetadataController(QObject):
         if self.queue:
             item = self.queue.pop(0)
             mode, targets, manual_url, overwrite_beh = item
-            self.status_message.emit(f"Processing queued task... ({len(self.queue)} remaining)", 3000)
+            self.status_message.emit(f"正在处理队列中的任务... ({len(self.queue)} 剩余)", 3000)
             self._start_worker(mode, targets, manual_url, overwrite_beh)
         else:
-            self.status_message.emit("All tasks completed.", 3000)
+            self.status_message.emit("所有任务已完成。", 3000)
 
     def _handle_overwrite_request(self, filename):
         # Must be run on UI thread (Controller lives in UI thread usually)

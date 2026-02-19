@@ -58,9 +58,9 @@ if __name__ == "__main__":
 
     import traceback
 
-    # Debug 模式 Extras (Crash Handler)
+    # 调试模式附加功能（崩溃处理程序）
     if debug_mode:
-        logging.info("=== Application Started (Debug 模式) ===")
+        logging.info("=== 应用程序已启动（调试模式） ===")
         
         # Global Exception Hook
         def crash_handler(etype, value, tb):

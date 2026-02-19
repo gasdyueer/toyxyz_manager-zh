@@ -32,3 +32,6 @@ MANIFEST
 venv/
 .env
 .DS_Store
+
+docs/
+scripts/

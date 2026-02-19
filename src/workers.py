@@ -154,7 +154,7 @@ class ImageLoader(QThread):
                                 del reader
                                 
                 except Exception as e: 
-                    logging.warning(f"失败 to load image {path}: {e}")
+                    logging.warning(f"图片加载失败 {path}: {e}")
 
                 self.image_loaded.emit(path, image)
                 
@@ -418,33 +418,33 @@ class MetadataWorker(QThread):
                 version_id = None
 
                 if self.mode == "auto":
-                    self.task_progress.emit(model_path, "Checking 哈希...", 10)
+                    self.task_progress.emit(model_path, "正在检查哈希...", 10)
                     file_hash, is_cached = self.file_service.get_cached_hash(
                         model_path, self.directories, self.cache_mode, self.status_update
                     )
                     
                     if not self._is_running: break
-                    if not file_hash: raise Exception("失败 to calculate hash.")
+                    if not file_hash: raise Exception("哈希计算失败。")
 
-                    if is_cached: self.task_progress.emit(model_path, "哈希 已缓存", 30)
-                    else: self.task_progress.emit(model_path, "哈希ing 完成", 30)
+                    if is_cached: self.task_progress.emit(model_path, "哈希值已缓存", 30)
+                    else: self.task_progress.emit(model_path, "正在计算哈希... 完成", 30)
 
-                    self.task_progress.emit(model_path, "搜索中 Civitai...", 40)
+                    self.task_progress.emit(model_path, "正在搜索 Civitai...", 40)
                     version_data = self.api_service.fetch_civitai_version(file_hash)
                     model_id = version_data.get("modelId")
                     version_id = version_data.get("id")
                 else:
-                    if not self.manual_url: raise Exception("No URL.")
+                    if not self.manual_url: raise Exception("未提供URL。")
                     match_m = re.search(r'models/(\d+)', self.manual_url)
                     match_v = re.search(r'modelVersionId=(\d+)', self.manual_url)
                     if match_m: model_id = match_m.group(1)
                     if match_v: version_id = match_v.group(1)
                 
                 if not model_id: 
-                    self.task_progress.emit(model_path, "Not Found", 0)
+                    self.task_progress.emit(model_path, "未找到", 0)
                     continue
                 
-                self.task_progress.emit(model_path, "获取中 详情s...", 50)
+                self.task_progress.emit(model_path, "正在获取详情...", 50)
                 model_data = self.api_service.fetch_civitai_model(model_id)
                 if not self._is_running: break
 
@@ -506,15 +506,15 @@ class MetadataWorker(QThread):
             time.sleep(0.5)
             
         if self._is_running:
-            self.status_update.emit(f"Batch 完成. ({success_count}/{total_files} succeeded)")
+            self.status_update.emit(f"批量处理完成. ({success_count}/{total_files} 成功)")
         else:
-            self.status_update.emit("Batch Cancelled.")
+            self.status_update.emit("批量处理已取消。")
 
 
     def _process_huggingface(self, model_path, url):
-        self.task_progress.emit(model_path, "获取中 HF Info...", 20)
+        self.task_progress.emit(model_path, "正在获取 Hugging Face 信息...", 20)
         match = re.search(r'huggingface\.co/([^/]+)/([^/?#]+)', url)
-        if not match: raise Exception("Invalid Hugging Face URL format.")
+        if not match: raise Exception("无效的 Hugging Face URL 格式。")
         repo_id = f"{match.group(1)}/{match.group(2)}"
         
         model_data = self.api_service.fetch_hf_model(repo_id)
@@ -540,7 +540,7 @@ class MetadataWorker(QThread):
             self.file_service.try_set_thumbnail_from_cache(model_path, self.directories, self.cache_mode)
         
         self.task_progress.emit(model_path, "完成", 100)
-        self.model_processed.emit(True, "Hugging Face Data 已处理", {"description": full_desc}, model_path)
+        self.model_processed.emit(True, "Hugging Face 数据已处理", {"description": full_desc}, model_path)
 
 
     def _process_embedded_images(self, text, model_path):
@@ -596,8 +596,8 @@ class MetadataWorker(QThread):
                             img.close()
                             if os.path.exists(new_path): os.remove(fpath)
                         except Exception as e:
-                            logging.warning(f"[AutoConvert] 失败 to convert {os.path.basename(fpath)}: {e}")
-            except Exception as e: logging.error(f"Preview download error: {e}")
+                            logging.warning(f"[自动转换] 转换失败 {os.path.basename(fpath)}: {e}")
+            except Exception as e: logging.error(f"预览图下载错误: {e}")
             
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             for _ in executor.map(_download_single, urls):
@@ -726,12 +726,12 @@ class 模型DownloadWorker(QThread):
             )
             
             if final_path:
-                self.finished.emit("Download 完成", final_path)
+                self.finished.emit("下载完成", final_path)
             else:
-                self.error.emit("Download failed (No path returned)")
+                self.error.emit("下载失败（未返回文件路径）")
 
         except InterruptedError:
-            self.finished.emit("Cancelled", "")
+            self.finished.emit("已取消", "")
             return
         except Exception as e:
             self.error.emit(str(e))

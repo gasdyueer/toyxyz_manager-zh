@@ -737,7 +737,7 @@ class TaskMonitorWidget(QWidget):
 class FolderDialog(QDialog):
     def __init__(self, parent=None, path="", mode="model", model_type="checkpoints", comfy_root=""):
         super().__init__(parent)
-        self.setWindowTitle("Folder 设置")
+        self.setWindowTitle("文件夹设置")
         # [Memory] Auto-delete on close
         self.resize(500, 250)
         
